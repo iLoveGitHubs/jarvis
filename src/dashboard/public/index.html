@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>URD Guardian — Dashboard</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --txt:#c9d1d9; --mut:#8b949e; --acc:#58a6ff; --ok:#3fb950; --warn:#d29922; --err:#f85149; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--bg); color:var(--txt); }
+  header { padding:16px 24px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; }
+  header .sub { color:var(--mut); font-size:12px; }
+  nav { margin-left:auto; display:flex; gap:8px; }
+  button { background:var(--panel); color:var(--txt); border:1px solid var(--border); border-radius:6px; padding:6px 12px; cursor:pointer; font-family:inherit; font-size:12px; }
+  button:hover { border-color:var(--acc); }
+  .layout { display:grid; grid-template-columns:1fr 1fr; gap:16px; padding:16px 24px; }
+  @media (max-width:980px){ .layout{ grid-template-columns:1fr; } }
+  .col h2 { font-size:14px; color:var(--mut); text-transform:uppercase; letter-spacing:.05em; margin:0 0 12px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:12px; }
+  .card h3 { margin:0 0 6px; font-size:14px; }
+  .badge { display:inline-block; font-size:11px; padding:2px 8px; border-radius:10px; border:1px solid var(--border); margin-right:6px; }
+  .badge.ok { color:var(--ok); border-color:var(--ok); }
+  .badge.warn { color:var(--warn); border-color:var(--warn); }
+  .badge.err { color:var(--err); border-color:var(--err); }
+  .badge.acc { color:var(--acc); border-color:var(--acc); }
+  .meta { color:var(--mut); font-size:12px; margin:4px 0; }
+  .files { font-size:12px; color:var(--mut); }
+  .files code { color:var(--txt); }
+  .notes { margin-top:8px; }
+  .note { font-size:12px; padding:6px 8px; border-radius:6px; margin-bottom:4px; border-left:3px solid var(--mut); background:rgba(255,255,255,.02); }
+  .note.error { border-color:var(--err); }
+  .note.warn { border-color:var(--warn); }
+  .note.info { border-color:var(--acc); }
+  .commit { display:flex; justify-content:space-between; gap:8px; align-items:flex-start; }
+  .commit .sha { color:var(--acc); }
+  .empty { color:var(--mut); font-size:12px; padding:12px; text-align:center; }
+  ul { margin:6px 0; padding-left:18px; font-size:12px; }
+  li { color:var(--mut); margin:2px 0; }
+  .ac li { color:var(--txt); }
+  .tabs { display:flex; gap:4px; margin-bottom:12px; }
+  .tabs button { background:transparent; }
+  .tabs button.active { border-color:var(--acc); color:var(--acc); }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>URD Guardian</h1>
+  <span class="sub" id="meta">loading…</span>
+  <nav>
+    <button onclick="api('/api/check/recent','POST')">Check recent commits</button>
+    <button onclick="api('/api/generate-docs','POST')">Generate docs</button>
+    <button onclick="api('/api/snapshot','POST')">Snapshot versions</button>
+    <button onclick="load()">Refresh</button>
+  </nav>
+</header>
+<div class="layout">
+  <div class="col">
+    <h2>Requirements (URD)</h2>
+    <div id="reqs"></div>
+  </div>
+  <div class="col">
+    <h2>Commits &amp; Checks</h2>
+    <div class="tabs">
+      <button id="tab-checked" class="active" onclick="switchTab('checked')">Checked</button>
+      <button id="tab-git" onclick="switchTab('git')">Git log</button>
+    </div>
+    <div id="commits"></div>
+  </div>
+</div>
+<script>
+let tab='checked', gitCommits=[], regData=null;
+
+async function api(path, method='GET'){
+  const r = await fetch(path,{method});
+  const d = await r.json();
+  load();
+  return d;
+}
+
+async function loadGit(){
+  try{ const r=await fetch('/api/git/commits?limit=30'); gitCommits=await r.json(); }catch(_){ gitCommits=[]; }
+}
+
+async function load(){
+  await loadGit();
+  const r = await fetch('/api/registry');
+  regData = await r.json();
+  document.getElementById('meta').textContent =
+    `${regData.requirements.length} requirements · ${regData.commits.length} checked commits · updated ${regData.updatedAt||'?'}`;
+  renderReqs(regData.requirements);
+  renderCommits();
+}
+
+function esc(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function renderReqs(reqs){
+  const el=document.getElementById('reqs');
+  if(!reqs||!reqs.length){ el.innerHTML='<div class="empty">No requirements. Add a markdown URD to docs/urd/.</div>'; return; }
+  el.innerHTML = reqs.map(r=>{
+    const notes = (r.mismatchNotes||[]);
+    const statusBadge = `<span class="badge ${r.status==='done'?'ok':r.status==='in-progress'?'warn':'acc'}">${esc(r.status)}</span>`;
+    const noteBadge = notes.length?`<span class="badge ${notes.some(n=>n.level==='error')?'err':'warn'}">${notes.length} notes</span>`:'';
+    const commits = (r.commits||[]).map(c=>`<li><span class="sha">${esc(c.sha)}</span> ${esc(c.subject)} <span class="badge ${c.ok?'ok':'err'}">${c.ok?'ok':'issues'}</span></li>`).join('');
+    const ac = (r.acceptanceCriteria||[]).map(a=>`<li>${esc(a)}</li>`).join('');
+    const files = (r.affectedFiles||[]).map(f=>`<code>${esc(f)}</code>`).join(', ');
+    const noteHtml = notes.map(n=>`<div class="note ${n.level}"><b>${esc(n.commit)}</b> · ${esc(n.type)}: ${esc(n.message)}</div>`).join('');
+    return `<div class="card">
+      <h3>${esc(r.id)}: ${esc(r.title)} ${statusBadge} ${noteBadge}</h3>
+      <div class="meta">${esc(r.urdId)} v${esc(r.urdVersion)} · tags: ${esc((r.tags||[]).join(', ')||'—')}</div>
+      ${ac?`<div class="ac"><b>Acceptance criteria</b><ul>${ac}</ul></div>`:''}
+      ${files?`<div class="files"><b>Affected files:</b> ${files}</div>`:''}
+      ${commits?`<div><b>Commits</b><ul>${commits}</ul></div>`:'<div class="meta">No commits linked yet.</div>'}
+      ${noteHtml?`<div class="notes"><b>Mismatch notes</b>${noteHtml}</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+function renderCommits(){
+  const el=document.getElementById('commits');
+  if(tab==='checked'){
+    const cs=regData.commits||[];
+    if(!cs.length){ el.innerHTML='<div class="empty">No commits checked yet. Click "Check recent commits".</div>'; return; }
+    el.innerHTML=cs.map(c=>{
+      const badge=`<span class="badge ${c.ok?'ok':'err'}">${c.ok?'PASS':'FAIL'}</span>`;
+      const notes=(c.notes||[]).map(n=>`<div class="note ${n.level}">${esc(n.type)}: ${esc(n.message)}</div>`).join('');
+      const extra=(c.extraFiles||[]).map(f=>`<code>${esc(f)}</code>`).join(', ');
+      return `<div class="card">
+        <div class="commit"><h3><span class="sha">${esc(c.sha)}</span> ${esc(c.subject)}</h3>${badge}</div>
+        <div class="meta">${esc(c.author)} · ${esc(c.date)}</div>
+        <div class="meta">claimed: ${(c.claimed||[]).map(x=>`<span class="badge acc">${esc(x)}</span>`).join(' ')||'—'} matched: ${(c.matched||[]).map(x=>`<span class="badge ok">${esc(x)}</span>`).join(' ')||'—'}</div>
+        ${extra?`<div class="files"><b>Extra (not in URD):</b> ${extra}</div>`:''}
+        ${notes?`<div class="notes">${notes}</div>`:''}
+      </div>`;
+    }).join('');
+  } else {
+    if(!gitCommits.length){ el.innerHTML='<div class="empty">No git history.</div>'; return; }
+    el.innerHTML=gitCommits.map(c=>{
+      const checked=(regData.commits||[]).find(x=>x.fullSha===c.sha);
+      const badge=checked?`<span class="badge ${checked.ok?'ok':'err'}">${checked.ok?'PASS':'FAIL'}</span>`:'';
+      return `<div class="card">
+        <div class="commit"><h3><span class="sha">${esc(c.sha.slice(0,7))}</span> ${esc(c.subject)}</h3>${badge}</div>
+        <div class="meta">${esc(c.author)} · ${esc(c.date)} ${checked?'':'<button onclick="checkOne(\''+c.sha+'\')">Check</button>'}</div>
+      </div>`;
+    }).join('');
+  }
+}
+
+async function checkOne(sha){ await fetch('/api/check/'+sha); load(); }
+function switchTab(t){ tab=t; document.getElementById('tab-checked').classList.toggle('active',t==='checked'); document.getElementById('tab-git').classList.toggle('active',t==='git'); renderCommits(); }
+
+load();
+</script>
+</body>
+</html>

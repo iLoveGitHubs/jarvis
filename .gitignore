@@ -1,0 +1,7 @@
+node_modules/
+data/registry.json
+data/snapshots/
+docs/usage/*.md
+!docs/usage/.gitkeep
+.env
+*.log

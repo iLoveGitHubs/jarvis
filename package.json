@@ -1,0 +1,24 @@
+{
+  "name": "urd-guardian",
+  "version": "1.0.0",
+  "description": "AI agent that guards commits against URD requirements, generates usage docs, and serves a web dashboard. All docs in markdown.",
+  "type": "commonjs",
+  "main": "src/index.js",
+  "bin": {
+    "urd-guardian": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dashboard": "node src/index.js dashboard",
+    "check": "node src/index.js check",
+    "generate-docs": "node src/index.js generate-docs",
+    "snapshot": "node src/index.js snapshot",
+    "lint": "node src/index.js lint",
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["urd", "requirements", "git", "agent", "dashboard", "markdown"],
+  "license": "MIT"
+}

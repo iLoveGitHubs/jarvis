@@ -58,27 +58,28 @@ function cmdSync() {
   console.log(`Synced ${reqs.length} requirements into registry.`);
 }
 
-function cmdCheck(arg) {
+function cmdCheck(arg, root) {
+  const opts = root ? { root } : {};
   if (!arg || arg === 'head') {
-    const r = checkHead();
+    const r = checkHead(opts);
     if (r.error) return console.error(r.error);
-    recordCheck(r);
+    recordCheck(r, opts);
     print(r);
   } else if (arg === 'recent') {
-    const results = checkRecent(10);
-    for (const r of results) recordCheck(r);
+    const results = checkRecent(10, opts);
+    for (const r of results) recordCheck(r, opts);
     print(results);
   } else {
-    const r = checkCommit(arg);
+    const r = checkCommit(arg, opts);
     if (r.error) return console.error(r.error);
-    recordCheck(r);
+    recordCheck(r, opts);
     print(r);
   }
 }
 
-function recordCheck(check) {
+function recordCheck(check, opts = {}) {
   const reg = db.load();
-  const reqs = flattenRequirements(loadAllUrd());
+  const reqs = flattenRequirements(loadAllUrd(opts.root ? path.join(opts.root, 'docs', 'urd') : undefined));
   db.syncRequirements(reg, reqs);
   db.upsertCommit(reg, check);
   db.save(reg);
@@ -138,9 +139,15 @@ function main(argv) {
     case 'dashboard':
       createServer(parseInt(rest[0] || '7171', 10));
       break;
-    case 'check':
-      cmdCheck(rest[0]);
+    case 'check': {
+      let root;
+      const filtered = [];
+      for (let i = 0; i < rest.length; i++) {
+        if (rest[i] === '--root') { root = rest[++i]; } else { filtered.push(rest[i]); }
+      }
+      cmdCheck(filtered[0], root);
       break;
+    }
     case 'list-urd':
       cmdListUrd();
       break;

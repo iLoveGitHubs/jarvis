@@ -55,7 +55,7 @@ function changedFiles(sha, cwd = ROOT) {
     const parts = line.split('\t');
     const status = parts[0];
     const file = parts[parts.length - 1];
-    return { status, file: rel(path.join(cwd, file)) };
+    return { status, file: file.replace(/\\/g, '/') };
   });
 }
 

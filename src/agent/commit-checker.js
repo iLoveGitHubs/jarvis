@@ -1,5 +1,6 @@
 'use strict';
 
+const path = require('path');
 const { flattenRequirements, loadAllUrd } = require('./urd-reader');
 const git = require('./git-reader');
 const { DEFAULT_DIRS } = require('../store/fs-utils');
@@ -14,7 +15,9 @@ function parseClaimedRequirements(subject, body = '') {
 }
 
 function checkCommit(sha, opts = {}) {
-  const urds = loadAllUrd(opts.urdDir || DEFAULT_DIRS.urd);
+  const root = opts.root;
+  const urdDir = opts.urdDir || (root ? path.join(root, 'docs', 'urd') : DEFAULT_DIRS.urd);
+  const urds = loadAllUrd(urdDir);
   const requirements = flattenRequirements(urds);
   const reqByFile = new Map();
   for (const req of requirements) {
@@ -24,7 +27,7 @@ function checkCommit(sha, opts = {}) {
     }
   }
 
-  const info = git.commitInfo(sha);
+  const info = git.commitInfo(sha, root);
   const changedFiles = info.changedFiles.map((c) => c.file);
   const claimed = parseClaimedRequirements(info.subject, info.body);
 
@@ -104,14 +107,14 @@ function normalizePath(p) {
   return p.replace(/\\/g, '/');
 }
 
-function checkHead(opts) {
-  const sha = git.headSha();
+function checkHead(opts = {}) {
+  const sha = git.headSha(opts.root);
   if (!sha) return { error: 'Not a git repo or no commits yet.' };
   return checkCommit(sha, opts);
 }
 
 function checkRecent(limit = 10, opts = {}) {
-  const commits = git.listCommits(limit);
+  const commits = git.listCommits(limit, opts.root);
   return commits.map((c) => checkCommit(c.sha, opts));
 }
 

@@ -42,14 +42,14 @@ function commitInfo(sha, cwd = ROOT) {
   const author = git(`log -1 --pretty=format:%an ${sha}`, cwd);
   const date = git(`log -1 --pretty=format:%ad --date=iso ${sha}`, cwd);
   const body = git(`log -1 --pretty=format:%b ${sha}`, cwd);
-  const changedFiles = changedFiles(sha, cwd);
-  const diffStat = git(`diff-tree --no-commit-id --stat ${sha}`, cwd);
-  const fullDiff = git(`diff-tree --no-commit-id -p ${sha}`, cwd);
-  return { sha, subject, author, date, body, changedFiles, diffStat, fullDiff };
+  const files = changedFiles(sha, cwd);
+  const diffStat = git(`diff-tree --no-commit-id --stat --root ${sha}`, cwd);
+  const fullDiff = git(`diff-tree --no-commit-id -p --root ${sha}`, cwd);
+  return { sha, subject, author, date, body, changedFiles: files, diffStat, fullDiff };
 }
 
 function changedFiles(sha, cwd = ROOT) {
-  const raw = git(`diff-tree --no-commit-id --name-status -r ${sha}`, cwd);
+  const raw = git(`diff-tree --no-commit-id --name-status -r --root ${sha}`, cwd);
   if (!raw) return [];
   return raw.split('\n').map((line) => {
     const parts = line.split('\t');

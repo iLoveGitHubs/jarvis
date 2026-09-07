@@ -1,7 +1,10 @@
 node_modules/
+agentbase-skills/
 data/registry.json
 data/snapshots/
 docs/usage/*.md
 !docs/usage/.gitkeep
 .env
+.greennode.json
+.agentbase/
 *.log

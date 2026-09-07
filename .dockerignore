@@ -1,0 +1,13 @@
+node_modules/
+.git/
+.gitignore
+.env
+.greennode.json
+.agentbase/
+data/registry.json
+data/snapshots/
+agentbase-skills/
+docs/usage/
+*.log
+Dockerfile
+.dockerignore

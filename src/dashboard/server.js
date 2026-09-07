@@ -115,6 +115,10 @@ function createServer(port = 7171) {
   const server = http.createServer((req, res) => {
     const parsed = url.parse(req.url, true);
     const pathname = parsed.pathname;
+    if (pathname === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ status: 'healthy', ts: Date.now() }));
+    }
     if (req.method === 'POST' && pathname === '/api/snapshot') return handleApi(req, res, '/api/snapshot', parsed.query);
     if (req.method === 'POST' && pathname === '/api/generate-docs') return handleApi(req, res, '/api/generate-docs', parsed.query);
     if (req.method === 'POST' && pathname === '/api/check/recent') return handleApi(req, res, '/api/check/recent', parsed.query);

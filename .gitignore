@@ -1,7 +1,8 @@
 node_modules/
 agentbase-skills/
-data/registry.json
-data/snapshots/
+data/
+projects/
+deploy-data/
 docs/usage/*.md
 !docs/usage/.gitkeep
 .env

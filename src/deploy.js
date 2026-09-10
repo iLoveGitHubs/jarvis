@@ -193,7 +193,75 @@ async function deploy(opts) {
   return { id, status, endpoint: def && def.url };
 }
 
-module.exports = { getToken, canUsePoc, crRepo, crCredentials, flavors, listRuntimes, getRuntime, listEndpoints, createRuntime, discover, deploy, ENDPOINTS };
+async function updateRuntimeApi(token, id, body) {
+  const r = await req('PATCH', `${ENDPOINTS.RUNTIME}/agent-runtimes/${id}`, { bearer: token, json: body });
+  return { status: r.status, json: r.json };
+}
+
+async function update(opts) {
+  const { runtimeId, runtimeName, flavorId, poc, tag, envFile } = opts;
+  const token = await getToken();
+  const repo = await crRepo(token);
+  const cred = await crCredentials(token);
+  const registryUrl = repo.registryUrl;
+  const repoName = repo.name;
+  const image = `${registryUrl}/${repoName}/${runtimeName}:${tag}`;
+  console.log(`Image: ${image}`);
+
+  console.log('→ docker login to registry...');
+  execSync(`docker login ${registryUrl} -u ${cred.username} --password-stdin`, { input: cred.secret, stdio: ['pipe', 'ignore', 'inherit'] });
+
+  console.log('→ docker build (linux/amd64)...');
+  execSync(`docker build --platform linux/amd64 -t ${image} .`, { cwd: ROOT, stdio: 'inherit' });
+
+  console.log('→ docker push...');
+  execSync(`docker push ${image}`, { cwd: ROOT, stdio: 'inherit' });
+
+  const envVars = envFile && fs.existsSync(path.join(ROOT, envFile)) ? readEnvFile(path.join(ROOT, envFile)) : {};
+  const body = {
+    imageUrl: image,
+    flavorId,
+    description: runtimeName,
+    command: [],
+    args: [],
+    environmentVariables: envVars,
+    autoscaling: { minReplicas: 1, maxReplicas: 1, cpuUtilization: 50, memoryUtilization: 50 },
+    poc: String(poc),
+    imageAuth: { enabled: true, username: cred.username, password: cred.secret },
+  };
+
+  console.log(`→ update runtime ${runtimeId}...`);
+  const updated = await updateRuntimeApi(token, runtimeId, body);
+  if (updated.status >= 400) {
+    console.error('UPDATE FAILED:', updated.status, JSON.stringify(updated.json).slice(0, 500));
+    process.exit(1);
+  }
+  console.log(`Runtime updated: id=${runtimeId}`);
+
+  console.log('→ waiting for ACTIVE...');
+  let status = '';
+  for (let i = 0; i < 40; i++) {
+    const cur = await getRuntime(token, runtimeId);
+    status = cur.status;
+    if (status === 'ACTIVE') break;
+    if (status === 'ERROR' || status === 'FAILED') { console.error('Runtime ERROR'); break; }
+    await new Promise((r) => setTimeout(r, 5000));
+    console.log(`  poll ${i + 1}: ${status}`);
+  }
+
+  const eps = await listEndpoints(token, runtimeId);
+  const epList = (eps && (eps.listData || eps.data)) || [];
+  const def = epList.find((e) => (e.name || '').toUpperCase() === 'DEFAULT') || epList[0];
+  console.log('\n=== UPDATE COMPLETE ===');
+  console.log(`Runtime ID: ${runtimeId}`);
+  console.log(`Status:    ${status}`);
+  console.log(`Image:     ${image}`);
+  if (def) console.log(`Endpoint:  ${def.url}`);
+  console.log(`Console:   https://aiplatform.console.vngcloud.vn/agent-runtime?tab=runtime`);
+  return { id: runtimeId, status, endpoint: def && def.url };
+}
+
+module.exports = { getToken, canUsePoc, crRepo, crCredentials, flavors, listRuntimes, getRuntime, listEndpoints, createRuntime, discover, deploy, update, ENDPOINTS };
 
 if (require.main === module) {
   const cmd = process.argv[2];
@@ -201,5 +269,8 @@ if (require.main === module) {
   else if (cmd === 'deploy') {
     const opts = { runtimeName: process.argv[3], flavorId: process.argv[4], poc: process.argv[5] === 'true', tag: process.argv[6], envFile: process.argv[7] };
     deploy(opts).catch((e) => { console.error(e.message); process.exit(1); });
-  } else console.log('Usage: node src/deploy.js discover | deploy <name> <flavorId> <poc:true|false> <tag> [envFile]');
+  } else if (cmd === 'update') {
+    const opts = { runtimeId: process.argv[3], runtimeName: process.argv[4], flavorId: process.argv[5], poc: process.argv[6] === 'true', tag: process.argv[7], envFile: process.argv[8] };
+    update(opts).catch((e) => { console.error(e.message); process.exit(1); });
+  } else console.log('Usage: node src/deploy.js discover | deploy <name> <flavorId> <poc> <tag> [envFile] | update <id> <name> <flavorId> <poc> <tag> [envFile]');
 }

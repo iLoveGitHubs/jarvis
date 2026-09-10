@@ -4,12 +4,13 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
-const { ROOT, DEFAULT_DIRS, readText, rel } = require('../store/fs-utils');
+const { ROOT, DEFAULT_DIRS, readText, rel, ensureDir } = require('../store/fs-utils');
 const db = require('../store/db');
+const projects = require('../store/projects');
 const { loadAllUrd, flattenRequirements } = require('../agent/urd-reader');
-const { checkCommit, checkRecent, checkHead } = require('../agent/commit-checker');
+const { checkCommit, checkRecent, checkHead, checkStaged } = require('../agent/commit-checker');
 const { generateAll } = require('../agent/doc-generator');
-const { snapshotAll } = require('../agent/version-manager');
+const llm = require('../agent/llm-checker');
 const git = require('../agent/git-reader');
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -19,78 +20,233 @@ function json(res, code, data) {
   res.end(JSON.stringify(data, null, 2));
 }
 
-function syncRegistry() {
-  const reg = db.load();
-  const urds = loadAllUrd();
+function makeCtx(projectName) {
+  const list = projects.loadProjects();
+  const proj = (projectName && list.find((p) => p.name === projectName)) || list[0];
+  if (!proj) return null;
+  const root = proj.path;
+  const srcDir = path.join(root, 'src');
+  const sourceDir = fs.existsSync(srcDir) ? srcDir
+    : fs.existsSync(path.join(root, 'backend', 'src')) ? path.join(root, 'backend', 'src')
+    : root;
+  return {
+    projectName: proj.name,
+    root,
+    urdDir: proj.urdPath ? proj.urdPath : path.join(root, 'docs', 'urd'),
+    sourceDir,
+    usageDir: path.join(root, 'docs', 'usage'),
+    registryFile: projects.registryFileFor(proj.name),
+  };
+}
+
+function syncRegistry(ctx) {
+  const reg = db.load(ctx.registryFile);
+  const urds = loadAllUrd(ctx.urdDir);
   const reqs = flattenRequirements(urds);
   db.syncRequirements(reg, reqs);
-  db.save(reg);
+  db.save(reg, ctx.registryFile);
   return reg;
 }
 
-function handleApi(req, res, pathname, query) {
+function listDocs(ctx) {
+  ensureDir(ctx.usageDir);
+  const out = [];
+  if (!fs.existsSync(ctx.usageDir)) return out;
+  for (const entry of fs.readdirSync(ctx.usageDir, { withFileTypes: true })) {
+    if (entry.isFile() && path.extname(entry.name) === '.md') {
+      const full = path.join(ctx.usageDir, entry.name);
+      out.push({ name: entry.name, size: fs.statSync(full).size });
+    }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function findTestFiles(sourceDir, projectRoot) {
+  const testPatterns = [/Test\.java$/i, /Tests\.java$/i, /\.test\.(js|ts)$/i, /\.spec\.(js|ts)$/i, /^test_.*\.py$/i, /_test\.py$/i];
+  const out = [];
+  const walk = (d) => {
+    if (!fs.existsSync(d)) return;
+    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+      if (['node_modules', '.git', 'target', 'dist', '.angular', 'build'].includes(entry.name)) continue;
+      const full = path.join(d, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (testPatterns.some((p) => p.test(entry.name))) out.push(path.relative(projectRoot, full).replace(/\\/g, '/'));
+    }
+  };
+  walk(sourceDir);
+  return out;
+}
+
+function listUrd(ctx) {
+  const out = [];
+  if (!fs.existsSync(ctx.urdDir)) return out;
+  for (const entry of fs.readdirSync(ctx.urdDir, { withFileTypes: true })) {
+    if (entry.isFile() && path.extname(entry.name) === '.md') {
+      const full = path.join(ctx.urdDir, entry.name);
+      out.push({ name: entry.name, size: fs.statSync(full).size });
+    }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function handleApi(req, res, pathname, query, ctx) {
   switch (pathname) {
+    case '/api/projects': {
+      const list = projects.loadProjects();
+      const stats = list.map((p) => {
+        const c = makeCtx(p.name);
+        if (!c) return { name: p.name, path: p.path, requirements: 0, commits: 0, gitUrl: null, urdGitUrl: null };
+        const reg = db.load(c.registryFile);
+        let gitUrl = p.gitUrl || git.remoteUrl(c.root);
+        if (gitUrl && gitUrl.startsWith('/')) gitUrl = p.gitUrl || null;
+        let urdGitUrl = p.urdGitUrl || (p.urdPath ? git.remoteUrl(p.urdPath) : null);
+        if (urdGitUrl && urdGitUrl.startsWith('/')) urdGitUrl = p.urdGitUrl || null;
+        return { name: p.name, path: p.path, requirements: reg.requirements.length, commits: reg.commits.length, gitUrl, urdGitUrl, branch: git.branches(c.root)[0] || '', checkMode: p.checkMode || 'post' };
+      });
+      return json(res, 200, { current: ctx && ctx.projectName, projects: stats });
+    }
     case '/api/registry': {
-      const reg = syncRegistry();
+      const reg = syncRegistry(ctx);
       return json(res, 200, db.dashboardView(reg));
     }
     case '/api/requirements': {
-      const reg = syncRegistry();
+      const reg = syncRegistry(ctx);
       return json(res, 200, db.dashboardView(reg).requirements);
     }
     case '/api/commits': {
-      const reg = syncRegistry();
+      const reg = syncRegistry(ctx);
       return json(res, 200, db.dashboardView(reg).commits);
     }
     case '/api/git/commits': {
-      return json(res, 200, git.listCommits(parseInt(query.limit || '50', 10)));
+      return json(res, 200, git.listCommits(parseInt(query.limit || '50', 10), ctx.root));
     }
     case '/api/git/status': {
-      return json(res, 200, { isRepo: git.isRepo(), head: git.headSha(), branch: git.branches(), status: git.statusPorcelain() });
+      return json(res, 200, { isRepo: git.isRepo(ctx.root), head: git.headSha(ctx.root), branch: git.branches(ctx.root), status: git.statusPorcelain(ctx.root) });
     }
     case '/api/check/head': {
-      const result = checkHead();
+      const result = await checkHead({ root: ctx.root, urdDir: ctx.urdDir });
       if (result.error) return json(res, 400, result);
-      const reg = db.load();
+      const reg = db.load(ctx.registryFile);
       db.upsertCommit(reg, result);
-      db.save(reg);
+      db.save(reg, ctx.registryFile);
       return json(res, 200, result);
     }
     case '/api/check/recent': {
-      const results = checkRecent(parseInt(query.limit || '10', 10));
-      const reg = db.load();
+      const results = await checkRecent(parseInt(query.limit || '3', 10), { root: ctx.root, urdDir: ctx.urdDir });
+      const reg = db.load(ctx.registryFile);
       for (const r of results) db.upsertCommit(reg, r);
-      db.save(reg);
+      db.save(reg, ctx.registryFile);
       return json(res, 200, results);
     }
     case '/api/generate-docs': {
-      const result = generateAll();
+      const result = generateAll({ sourceDir: ctx.sourceDir, usageDir: ctx.usageDir, urdDir: ctx.urdDir, projectRoot: ctx.root });
       return json(res, 200, result);
     }
-    case '/api/snapshot': {
-      const snap = snapshotAll();
-      const reg = db.load();
-      reg.urdVersions = snap.urd;
-      reg.docVersions = snap.usage;
-      reg.sourceVersions = [snap.source];
-      db.save(reg);
-      return json(res, 200, snap);
+    case '/api/docs': {
+      return json(res, 200, { dir: rel(ctx.usageDir), files: listDocs(ctx) });
+    }
+    case '/api/urd': {
+      return json(res, 200, { dir: rel(ctx.urdDir), files: listUrd(ctx) });
+    }
+    case '/api/traceability': {
+      const reg = syncRegistry(ctx);
+      const view = db.dashboardView(reg);
+      const testFiles = findTestFiles(ctx.sourceDir, ctx.root);
+      const commitById = new Map();
+      for (const c of reg.commits) commitById.set(c.sha, c);
+      const matrix = view.requirements.map((r) => {
+        const reqCommits = (r.commits || []).map((sc) => commitById.get(sc.sha)).filter(Boolean);
+        const sourceFiles = [...new Set(reqCommits.flatMap((c) => c.changedFiles || []))];
+        const tests = testFiles.filter((f) => {
+          const lower = f.toLowerCase();
+          return lower.includes(r.id.toLowerCase().replace('-', '')) || lower.includes(r.id.toLowerCase());
+        });
+        return {
+          id: r.id, title: r.title, urdId: r.urdId, urdFile: r.urdFile,
+          status: r.status,
+          acCount: (r.acceptanceCriteria || []).length,
+          commits: (r.commits || []).map((c) => ({ sha: c.sha, ok: c.ok, subject: c.subject })),
+          sourceFiles,
+          testFiles: tests,
+          mismatchNotes: r.mismatchNotes || [],
+        };
+      });
+      return json(res, 200, { requirements: matrix, totalTests: testFiles.length });
+    }
+    case '/api/coverage': {
+      const reg = syncRegistry(ctx);
+      const view = db.dashboardView(reg);
+      const reqs = view.requirements;
+      const total = reqs.length;
+      const pass = reqs.filter((r) => (r.commits || []).some((c) => c.ok)).length;
+      const fail = reqs.filter((r) => (r.commits || []).length && !(r.commits || []).some((c) => c.ok)).length;
+      const notStarted = reqs.filter((r) => !(r.commits || []).length).length;
+      const byUrd = {};
+      for (const r of reqs) {
+        const k = r.urdId || 'không rõ';
+        if (!byUrd[k]) byUrd[k] = { total: 0, pass: 0, fail: 0, notStarted: 0 };
+        byUrd[k].total++;
+        if (!(r.commits || []).length) byUrd[k].notStarted++;
+        else if ((r.commits || []).some((c) => c.ok)) byUrd[k].pass++;
+        else byUrd[k].fail++;
+      }
+      const commits = [...view.commits].reverse();
+      const seenPass = new Set();
+      const trend = commits.map((c) => {
+        for (const r of (c.requirements || [])) if (r.verdict === 'PASS') seenPass.add(r.id);
+        return { sha: c.sha, date: c.date, passed: seenPass.size, total, coverage: total ? Math.round(seenPass.size / total * 100) : 0 };
+      });
+      return json(res, 200, { total, pass, fail, notStarted, percentage: total ? Math.round(pass / total * 100) : 0, byUrd, trend });
+    }
+    case '/api/impact': {
+      const reg = syncRegistry(ctx);
+      const view = db.dashboardView(reg);
+      const urdFiles = listUrd(ctx);
+      const commitById = new Map();
+      for (const c of reg.commits) commitById.set(c.sha, c);
+      let urdCommits = [];
+      try { urdCommits = git.listCommits(10, ctx.urdDir); } catch (_e) {}
+      const impact = urdFiles.map((f) => {
+        const urdReqs = view.requirements.filter((r) => r.urdFile && r.urdFile.endsWith(f.name));
+        return {
+          file: f.name,
+          requirementCount: urdReqs.length,
+          requirements: urdReqs.map((r) => {
+            const reqCommits = (r.commits || []).map((sc) => commitById.get(sc.sha)).filter(Boolean);
+            return {
+              id: r.id, title: r.title, status: r.status,
+              sourceFiles: [...new Set(reqCommits.flatMap((c) => c.changedFiles || []))],
+              commitCount: (r.commits || []).length,
+              hasFail: (r.mismatchNotes || []).some((n) => n.level === 'error'),
+            };
+          }),
+        };
+      });
+      return json(res, 200, { urdFiles: impact, urdCommits });
     }
     default:
       if (pathname.startsWith('/api/check/')) {
         const sha = pathname.replace('/api/check/', '');
-        const result = checkCommit(sha);
+        const result = await checkCommit(sha, { root: ctx.root, urdDir: ctx.urdDir });
         if (result.error) return json(res, 400, result);
-        const reg = db.load();
+        const reg = db.load(ctx.registryFile);
         db.upsertCommit(reg, result);
-        db.save(reg);
+        db.save(reg, ctx.registryFile);
         return json(res, 200, result);
       }
       if (pathname.startsWith('/api/docs/')) {
         const name = pathname.replace('/api/docs/', '');
-        const file = path.join(DEFAULT_DIRS.usage, name);
+        const file = path.join(ctx.usageDir, name);
         const text = readText(file);
         if (!text) return json(res, 404, { error: 'doc not found' });
+        res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8' });
+        return res.end(text);
+      }
+      if (pathname.startsWith('/api/urd/')) {
+        const name = pathname.replace('/api/urd/', '');
+        const file = path.join(ctx.urdDir, name);
+        const text = readText(file);
+        if (!text) return json(res, 404, { error: 'urd not found' });
         res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8' });
         return res.end(text);
       }
@@ -110,27 +266,156 @@ function handleStatic(req, res, pathname) {
   fs.createReadStream(filePath).pipe(res);
 }
 
-function createServer(port = 7171) {
-  syncRegistry();
+function readBody(req) {
+  return new Promise((resolve) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => resolve(body));
+  });
+}
+
+async function handleUploadUrd(req, res, ctx) {
+  try {
+    const body = JSON.parse(await readBody(req));
+    const name = (body.name || '').trim();
+    const content = body.content || '';
+    if (!name || !content) return json(res, 400, { error: 'Thiếu tên file hoặc nội dung' });
+    if (!name.endsWith('.md')) return json(res, 400, { error: 'File phải có đuôi .md' });
+    ensureDir(ctx.urdDir);
+    const safeName = name.replace(/[\\/]/g, '');
+    const filePath = path.join(ctx.urdDir, safeName);
+    fs.writeFileSync(filePath, content, 'utf8');
+    const reg = db.load(ctx.registryFile);
+    const urds = loadAllUrd(ctx.urdDir);
+    const reqs = flattenRequirements(urds);
+    db.syncRequirements(reg, reqs);
+    db.save(reg, ctx.registryFile);
+    const newUrds = urds.filter((u) => u.file.endsWith(safeName));
+    return json(res, 200, { saved: safeName, requirements: reqs.length, urd: newUrds[0] || null });
+  } catch (e) {
+    return json(res, 400, { error: e.message });
+  }
+}
+
+async function handleReviewUrd(req, res, ctx) {
+  try {
+    const body = JSON.parse(await readBody(req));
+    const content = body.content || '';
+    if (!content) return json(res, 400, { error: 'Thiếu nội dung URD' });
+    const review = await llm.reviewUrd(content);
+    return json(res, 200, review);
+  } catch (e) {
+    return json(res, 400, { error: e.message });
+  }
+}
+
+async function handleCheckStaged(req, res, ctx) {
+  try {
+    const body = JSON.parse(await readBody(req));
+    const result = await checkStaged(body.diff || '', body.message || '', { root: ctx.root, urdDir: ctx.urdDir });
+    return json(res, 200, result);
+  } catch (e) {
+    return json(res, 400, { error: e.message });
+  }
+}
+
+function generateHookScript(projectName, baseUrl) {
+  return `#!/bin/sh
+# Jarvis pre-commit/commit-msg hook — project: ${projectName}
+# Cài đặt: copy file này vào .git/hooks/commit-msg và chmod +x
+MSG=$(cat "$1")
+DIFF=$(git diff --cached)
+if [ -z "$DIFF" ]; then
+  echo "Jarvis: Không có thay đổi staged, bỏ qua kiểm tra."
+  exit 0
+fi
+RESULT=$(curl -s -X POST "${baseUrl}/api/check/staged?project=${projectName}" \\
+  -H "Content-Type: application/json" \\
+  -d "$(printf '%s' "$DIFF" | jq -Rs '{diff: ., message: "'"$MSG"'"}')")
+OK=$(echo "$RESULT" | jq -r '.ok // true')
+if [ "$OK" = "false" ]; then
+  echo ""
+  echo "❌ Jarvis: Commit BỊ CHẶN — code không khớp URD"
+  echo "$RESULT" | jq -r '.notes[]? | select(.level!="info") | "  ⚠️ " + .message'
+  echo ""
+  echo "Sửa code hoặc đổi commit message rồi thử lại."
+  echo "Bỏ qua: git commit --no-verify"
+  exit 1
+fi
+echo "✅ Jarvis: Commit PASS — code khớp URD"
+`;
+}
+
+function createServer(opts = {}) {
+  const port = typeof opts === 'number' ? opts : (opts.port || 7171);
+  if (opts.projectsDir) projects.syncDiscovered(opts.projectsDir);
   const server = http.createServer((req, res) => {
     const parsed = url.parse(req.url, true);
     const pathname = parsed.pathname;
+    const query = parsed.query;
     if (pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ status: 'healthy', ts: Date.now() }));
     }
-    if (req.method === 'POST' && pathname === '/api/snapshot') return handleApi(req, res, '/api/snapshot', parsed.query);
-    if (req.method === 'POST' && pathname === '/api/generate-docs') return handleApi(req, res, '/api/generate-docs', parsed.query);
-    if (req.method === 'POST' && pathname === '/api/check/recent') return handleApi(req, res, '/api/check/recent', parsed.query);
-    if (pathname.startsWith('/api/')) return handleApi(req, res, pathname, parsed.query);
+    if (pathname === '/api/projects' && req.method === 'GET') {
+      const ctx = makeCtx(query.project);
+      return handleApi(req, res, '/api/projects', query, ctx);
+    }
+    if (pathname === '/api/projects' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        try {
+          const { name, path: ppath, urdPath } = JSON.parse(body);
+          const rec = projects.addProject(name, ppath, urdPath);
+          return json(res, 200, rec);
+        } catch (e) { return json(res, 400, { error: e.message }); }
+      });
+      return;
+    }
+    if (pathname.startsWith('/api/projects/') && req.method === 'DELETE') {
+      const name = decodeURIComponent(pathname.replace('/api/projects/', ''));
+      projects.removeProject(name);
+      return json(res, 200, { removed: name });
+    }
+    if (pathname.startsWith('/api/projects/') && req.method === 'PATCH') {
+      const name = decodeURIComponent(pathname.replace('/api/projects/', '').replace('/mode', ''));
+      (async () => {
+        try {
+          const body = JSON.parse(await readBody(req));
+          const rec = projects.updateProject(name, body);
+          return json(res, 200, rec);
+        } catch (e) { return json(res, 400, { error: e.message }); }
+      })();
+      return;
+    }
+    if (pathname.startsWith('/api/projects/') && pathname.endsWith('/hook') && req.method === 'GET') {
+      const name = decodeURIComponent(pathname.replace('/api/projects/', '').replace('/hook', ''));
+      const p = projects.findProject(name);
+      if (!p) return json(res, 404, { error: 'project not found' });
+      const host = req.headers.host || 'localhost:8080';
+      const proto = req.headers['x-forwarded-proto'] || 'http';
+      const baseUrl = `${proto}://${host}`;
+      const hook = generateHookScript(name, baseUrl);
+      res.writeHead(200, { 'Content-Type': 'text/x-shellscript; charset=utf-8', 'Content-Disposition': `attachment; filename="commit-msg"` });
+      return res.end(hook);
+    }
+    const ctx = makeCtx(query.project);
+    if (!ctx) return json(res, 400, { error: 'no projects configured. POST /api/projects {name,path} or set PROJECTS_DIR.' });
+    if (req.method === 'POST' && pathname === '/api/generate-docs') return handleApi(req, res, '/api/generate-docs', query, ctx);
+    if (req.method === 'POST' && pathname === '/api/check/recent') return handleApi(req, res, '/api/check/recent', query, ctx);
+    if (req.method === 'POST' && pathname === '/api/check/staged') return handleCheckStaged(req, res, ctx);
+    if (req.method === 'POST' && pathname === '/api/urd') return handleUploadUrd(req, res, ctx);
+    if (req.method === 'POST' && pathname === '/api/urd/review') return handleReviewUrd(req, res, ctx);
+    if (pathname.startsWith('/api/')) return handleApi(req, res, pathname, query, ctx);
     return handleStatic(req, res, pathname);
   });
   server.listen(port, () => {
-    console.log(`[urd-guardian] dashboard on http://localhost:${port}`);
-    console.log(`[urd-guardian] docs/urd   -> ${rel(DEFAULT_DIRS.urd)}`);
-    console.log(`[urd-guardian] docs/usage -> ${rel(DEFAULT_DIRS.usage)}`);
+    const list = projects.loadProjects();
+    console.log(`[urd-guardian] dashboard on http://localhost:${port} (${list.length} projects)`);
+    for (const p of list) console.log(`[urd-guardian]   - ${p.name} -> ${p.path}`);
   });
   return server;
 }
 
-module.exports = { createServer };
+module.exports = { createServer, makeCtx, syncRegistry };

@@ -81,6 +81,18 @@ function statusPorcelain(cwd = ROOT) {
   }));
 }
 
+function remoteUrl(cwd = ROOT) {
+  const raw = git('remote get-url origin', cwd);
+  if (!raw) return null;
+  return raw.replace(/\.git$/, '').replace(/^git@github\.com:/, 'https://github.com/');
+}
+
+function remoteUrdUrl(cwd = ROOT) {
+  const raw = git('remote get-url origin', cwd);
+  if (!raw) return null;
+  return raw.replace(/\.git$/, '').replace(/^git@github\.com:/, 'https://github.com/');
+}
+
 module.exports = {
   git,
   isRepo,
@@ -93,4 +105,5 @@ module.exports = {
   diffFor,
   branches,
   statusPorcelain,
+  remoteUrl,
 };

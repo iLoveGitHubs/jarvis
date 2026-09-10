@@ -19,9 +19,9 @@ function parseRequirementSection(body, headingLine) {
   const lines = body.split(/\r?\n/);
   const start = lines.indexOf(headingLine);
   if (start < 0) return null;
-  const idMatch = headingLine.match(/###\s+(REQ-[A-Za-z0-9-]+)/);
+  const idMatch = headingLine.match(/###\s+((?:REQ|CR)-[A-Za-z0-9-]+)/);
   const id = idMatch ? idMatch[1] : null;
-  const title = headingLine.replace(/^###\s+/, '').replace(/REQ-[A-Za-z0-9-]+\s*:\s*/, '');
+  const title = headingLine.replace(/^###\s+/, '').replace(/(?:REQ|CR)-[A-Za-z0-9-]+\s*:\s*/, '');
 
   const section = [];
   for (let i = start + 1; i < lines.length; i++) {
@@ -53,7 +53,7 @@ function parseUrdFile(file) {
   const text = readText(file);
   const { frontmatter, body } = parseFrontmatter(text);
   const requirements = [];
-  const headingRe = /^###\s+REQ-[A-Za-z0-9-]+/m;
+  const headingRe = /^###\s+(?:REQ|CR)-[A-Za-z0-9-]+/m;
   const lines = body.split(/\r?\n/);
   for (const line of lines) {
     if (headingRe.test(line)) {

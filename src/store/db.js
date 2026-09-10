@@ -61,9 +61,7 @@ function upsertCommit(reg, check) {
     date: check.date,
     claimedRequirementIds: check.claimedRequirementIds,
     changedFiles: check.changedFiles,
-    matchedRequirements: check.matchedRequirements,
-    extraFiles: check.extraFiles,
-    missingRequirements: check.missingRequirements,
+    requirements: check.requirements || [],
     notes: check.notes,
     ok: check.ok,
     checkedAt: check.checkedAt,
@@ -71,11 +69,11 @@ function upsertCommit(reg, check) {
   if (idx > -1) reg.commits[idx] = record;
   else reg.commits.push(record);
 
-  for (const reqId of check.matchedRequirements) {
-    const r = reg.requirements.find((x) => x.id === reqId);
+  for (const res of (check.requirements || [])) {
+    const r = reg.requirements.find((x) => x.id === res.id);
     if (r) {
       if (!r.commits.includes(check.sha)) r.commits.push(check.sha);
-      r.status = check.missingRequirements.includes(reqId) ? 'in-progress' : 'done';
+      r.status = res.verdict === 'PASS' ? 'done' : 'in-progress';
     }
   }
   return record;
@@ -101,6 +99,7 @@ function dashboardView(reg) {
         id: r.id,
         urdId: r.urdId,
         urdVersion: r.urdVersion,
+        urdFile: r.urdFile,
         title: r.title,
         status: r.status,
         affectedFiles: r.affectedFiles,
@@ -119,9 +118,7 @@ function dashboardView(reg) {
       date: c.date,
       ok: c.ok,
       claimed: c.claimedRequirementIds,
-      matched: c.matchedRequirements,
-      missing: c.missingRequirements,
-      extraFiles: c.extraFiles,
+      requirements: c.requirements || [],
       noteCount: (c.notes || []).length,
       notes: c.notes,
     })),

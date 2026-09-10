@@ -43,7 +43,7 @@ function listFiles(dir, exts) {
   const out = [];
   const walk = (d) => {
     for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
-      if (entry.name === 'node_modules' || entry.name === '.git') continue;
+      if (['node_modules', '.git', 'target', 'dist', '.angular', 'build', '__pycache__'].includes(entry.name)) continue;
       const full = path.join(d, entry.name);
       if (entry.isDirectory()) walk(full);
       else if (!exts || exts.includes(path.extname(entry.name))) out.push(full);

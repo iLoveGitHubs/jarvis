@@ -58,19 +58,19 @@ function cmdSync() {
   console.log(`Synced ${reqs.length} requirements into registry.`);
 }
 
-function cmdCheck(arg, root) {
+async function cmdCheck(arg, root) {
   const opts = root ? { root } : {};
   if (!arg || arg === 'head') {
-    const r = checkHead(opts);
+    const r = await checkHead(opts);
     if (r.error) return console.error(r.error);
     recordCheck(r, opts);
     print(r);
   } else if (arg === 'recent') {
-    const results = checkRecent(10, opts);
+    const results = await checkRecent(10, opts);
     for (const r of results) recordCheck(r, opts);
     print(results);
   } else {
-    const r = checkCommit(arg, opts);
+    const r = await checkCommit(arg, opts);
     if (r.error) return console.error(r.error);
     recordCheck(r, opts);
     print(r);
@@ -145,7 +145,7 @@ function main(argv) {
       for (let i = 0; i < rest.length; i++) {
         if (rest[i] === '--root') { root = rest[++i]; } else { filtered.push(rest[i]); }
       }
-      cmdCheck(filtered[0], root);
+      cmdCheck(filtered[0], root).catch((e) => console.error(e.message));
       break;
     }
     case 'list-urd':

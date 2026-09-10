@@ -1,156 +1,396 @@
-<!DOCTYPE html>
-<html lang="en">
+﻿<!DOCTYPE html>
+<html lang="vi">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>URD Guardian — Dashboard</title>
+<title>Jarvis — Kiểm tra URD</title>
 <style>
-  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --txt:#c9d1d9; --mut:#8b949e; --acc:#58a6ff; --ok:#3fb950; --warn:#d29922; --err:#f85149; }
+  :root { --bg:#0d1117; --panel:#161b22; --panel2:#1c2128; --border:#30363d; --txt:#c9d1d9; --mut:#8b949e; --acc:#58a6ff; --ok:#3fb950; --warn:#d29922; --err:#f85149; }
   * { box-sizing:border-box; }
   body { margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--bg); color:var(--txt); }
-  header { padding:16px 24px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
-  header h1 { font-size:18px; margin:0; }
+  header { padding:10px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0; }
   header .sub { color:var(--mut); font-size:12px; }
-  nav { margin-left:auto; display:flex; gap:8px; }
-  button { background:var(--panel); color:var(--txt); border:1px solid var(--border); border-radius:6px; padding:6px 12px; cursor:pointer; font-family:inherit; font-size:12px; }
+  nav { margin-left:auto; display:flex; gap:6px; }
+  button { background:var(--panel2); color:var(--txt); border:1px solid var(--border); border-radius:6px; padding:5px 10px; cursor:pointer; font-family:inherit; font-size:12px; }
   button:hover { border-color:var(--acc); }
-  .layout { display:grid; grid-template-columns:1fr 1fr; gap:16px; padding:16px 24px; }
-  @media (max-width:980px){ .layout{ grid-template-columns:1fr; } }
-  .col h2 { font-size:14px; color:var(--mut); text-transform:uppercase; letter-spacing:.05em; margin:0 0 12px; }
-  .card { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:12px; }
+  button.primary { border-color:var(--acc); color:var(--acc); }
+  .layout { display:grid; grid-template-columns:200px 1fr; height:calc(100vh - 47px); }
+  .sidebar { border-right:1px solid var(--border); padding:10px; overflow-y:auto; }
+  .sidebar h2 { font-size:11px; color:var(--mut); text-transform:uppercase; letter-spacing:.05em; margin:0 0 8px; }
+  .proj-item { padding:7px 9px; border-radius:6px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; margin-bottom:3px; font-size:12px; }
+  .proj-item:hover { background:var(--panel2); }
+  .proj-item.active { background:var(--panel2); border:1px solid var(--acc); }
+  .proj-item .del { color:var(--err); opacity:0; font-size:10px; }
+  .proj-item:hover .del { opacity:.7; }
+  .main { overflow-y:auto; padding:14px 18px; }
+  .tabs { display:flex; gap:4px; margin-bottom:14px; border-bottom:1px solid var(--border); }
+  .tabs button { background:transparent; border:none; border-bottom:2px solid transparent; border-radius:0; padding:8px 14px; }
+  .tabs button.active { border-bottom-color:var(--acc); color:var(--acc); }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:13px; margin-bottom:11px; }
   .card h3 { margin:0 0 6px; font-size:14px; }
-  .badge { display:inline-block; font-size:11px; padding:2px 8px; border-radius:10px; border:1px solid var(--border); margin-right:6px; }
-  .badge.ok { color:var(--ok); border-color:var(--ok); }
-  .badge.warn { color:var(--warn); border-color:var(--warn); }
-  .badge.err { color:var(--err); border-color:var(--err); }
-  .badge.acc { color:var(--acc); border-color:var(--acc); }
-  .meta { color:var(--mut); font-size:12px; margin:4px 0; }
-  .files { font-size:12px; color:var(--mut); }
-  .files code { color:var(--txt); }
-  .notes { margin-top:8px; }
+  .badge { display:inline-block; font-size:11px; padding:2px 7px; border-radius:10px; border:1px solid var(--border); margin-right:5px; }
+  .badge.ok { color:var(--ok); border-color:var(--ok); } .badge.warn { color:var(--warn); border-color:var(--warn); } .badge.err { color:var(--err); border-color:var(--err); } .badge.acc { color:var(--acc); border-color:var(--acc); }
+  .meta { color:var(--mut); font-size:12px; margin:3px 0; }
+  .files { font-size:12px; color:var(--mut); } .files code { color:var(--txt); }
   .note { font-size:12px; padding:6px 8px; border-radius:6px; margin-bottom:4px; border-left:3px solid var(--mut); background:rgba(255,255,255,.02); }
-  .note.error { border-color:var(--err); }
-  .note.warn { border-color:var(--warn); }
-  .note.info { border-color:var(--acc); }
+  .note.error { border-color:var(--err); } .note.warn { border-color:var(--warn); } .note.info { border-color:var(--acc); }
   .commit { display:flex; justify-content:space-between; gap:8px; align-items:flex-start; }
   .commit .sha { color:var(--acc); }
-  .empty { color:var(--mut); font-size:12px; padding:12px; text-align:center; }
-  ul { margin:6px 0; padding-left:18px; font-size:12px; }
-  li { color:var(--mut); margin:2px 0; }
-  .ac li { color:var(--txt); }
-  .tabs { display:flex; gap:4px; margin-bottom:12px; }
-  .tabs button { background:transparent; }
-  .tabs button.active { border-color:var(--acc); color:var(--acc); }
-  .hidden { display:none; }
+  .empty { color:var(--mut); font-size:12px; padding:20px; text-align:center; }
+  ul { margin:5px 0; padding-left:18px; font-size:12px; } li { color:var(--mut); margin:2px 0; } .ac li { color:var(--txt); }
+  .docs-layout { display:grid; grid-template-columns:240px 1fr; gap:14px; }
+  .doc-list { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:8px; height:fit-content; }
+  .doc-list .doc-item { padding:6px 8px; border-radius:5px; cursor:pointer; font-size:12px; word-break:break-all; }
+  .doc-list .doc-item:hover { background:var(--panel2); } .doc-list .doc-item.active { background:var(--panel2); color:var(--acc); }
+  .doc-view { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:18px; overflow-x:auto; }
+  .doc-view h1 { font-size:18px; border-bottom:1px solid var(--border); padding-bottom:6px; } .doc-view h2 { font-size:15px; color:var(--acc); margin-top:16px; } .doc-view h3 { font-size:13px; color:var(--acc); }
+  .doc-view table { border-collapse:collapse; margin:8px 0; font-size:12px; } .doc-view th,.doc-view td { border:1px solid var(--border); padding:4px 8px; } .doc-view th { background:var(--panel2); }
+  .doc-view code { background:var(--panel2); padding:1px 5px; border-radius:3px; font-size:12px; } .doc-view pre { background:var(--panel2); padding:10px; border-radius:6px; overflow-x:auto; }
+  .doc-view blockquote { border-left:3px solid var(--acc); margin:6px 0; padding:2px 10px; color:var(--mut); }
+  .doc-view ul { color:var(--txt); } .doc-view p { margin:6px 0; }
+  .add-form { display:flex; gap:4px; margin-top:8px; }
+  .add-form input { background:var(--panel2); border:1px solid var(--border); border-radius:5px; color:var(--txt); padding:5px 7px; font-family:inherit; font-size:11px; width:100%; }
+  .add-form input.name { max-width:70px; }
 </style>
 </head>
 <body>
 <header>
-  <h1>URD Guardian</h1>
+  <h1>Jarvis <span style="color:var(--mut)">URD Guardian</span></h1>
   <span class="sub" id="meta">loading…</span>
   <nav>
-    <button onclick="api('/api/check/recent','POST')">Check recent commits</button>
-    <button onclick="api('/api/generate-docs','POST')">Generate docs</button>
-    <button onclick="api('/api/snapshot','POST')">Snapshot versions</button>
-    <button onclick="load()">Refresh</button>
+    <button onclick="checkRecent()">Kiểm tra commit</button>
+    <button onclick="genDocs()">Sinh tài liệu</button>
+    
+    <button class="primary" onclick="loadAll()">Làm mới</button>
   </nav>
 </header>
 <div class="layout">
-  <div class="col">
-    <h2>Requirements (URD)</h2>
-    <div id="reqs"></div>
-  </div>
-  <div class="col">
-    <h2>Commits &amp; Checks</h2>
-    <div class="tabs">
-      <button id="tab-checked" class="active" onclick="switchTab('checked')">Checked</button>
-      <button id="tab-git" onclick="switchTab('git')">Git log</button>
+  <div class="sidebar">
+    <h2>Dự án</h2>
+    <div id="projects"></div>
+    <div class="add-form">
+      <input class="name" id="addName" placeholder="tên" />
+      <input id="addPath" placeholder="/đường/dẫn/source" /><input id="addUrd" placeholder="/đường/dẫn/urd (tùy chọn)" />
+      <button onclick="addProject()">+</button>
     </div>
-    <div id="commits"></div>
+    <h2 style="margin-top:14px">Chú giải</h2>
+    <div style="font-size:11px;color:var(--mut);line-height:1.7">
+      <span class="badge ok">PASS</span> khớp URD<br/>
+      <span class="badge err">FAIL</span> thiếu yêu cầu<br/>
+      <span class="badge warn">warn</span> thừa/không claim<br/>
+      commit msg: <code>Req: REQ-001</code>
+    </div>
+  </div>
+  <div class="main">
+    <div id="proj-settings" style="display:none;margin-bottom:10px;padding:8px 12px;background:var(--panel);border:1px solid var(--border);border-radius:8px;font-size:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap"></div>
+    <div class="tabs">
+      <button id="tab-reqs" class="active" onclick="switchTab('reqs')">Yêu cầu</button>
+      <button id="tab-commits" onclick="switchTab('commits')">Commit</button>
+      <button id="tab-docs" onclick="switchTab('docs')">Tài liệu</button>
+      <button id="tab-trace" onclick="switchTab('trace')">Bản đồ</button>
+      <button id="tab-cov" onclick="switchTab('cov')">Sức khỏe</button>
+      <button id="tab-impact" onclick="switchTab('impact')">Tác động</button>
+    </div>
+    <div id="content"></div>
   </div>
 </div>
 <script>
-let tab='checked', gitCommits=[], regData=null;
+let currentProject=null, projectsList=[], tab='reqs', regData=null, docList=[], currentDoc=null;
 
-async function api(path, method='GET'){
-  const r = await fetch(path,{method});
-  const d = await r.json();
-  load();
-  return d;
+function qs(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+async function api(path, method='GET', body){
+  const sep = path.includes('?')?'&':'?';
+  const url = currentProject ? `${path}${sep}project=${encodeURIComponent(currentProject)}` : path;
+  const opt = { method };
+  if (body) { opt.body = JSON.stringify(body); opt.headers = {'Content-Type':'application/json'}; }
+  const r = await fetch(url, opt);
+  return r.json();
 }
 
-async function loadGit(){
-  try{ const r=await fetch('/api/git/commits?limit=30'); gitCommits=await r.json(); }catch(_){ gitCommits=[]; }
+async function loadAll(){
+  try { const pr = await fetch('/api/projects').then(r=>r.json()); projectsList = pr.projects||[]; if(!currentProject && projectsList.length) currentProject = pr.current || projectsList[0].name; renderProjects(); }
+  catch(e){ projectsList=[]; renderProjects(); }
+  if(!currentProject){ document.getElementById('meta').textContent='chưa có dự án'; document.getElementById('content').innerHTML='<div class="empty">Chưa có dự án. Thêm ở thanh bên (tên + đường dẫn).</div>'; return; }
+  try { const r = await fetch(`/api/registry?project=${encodeURIComponent(currentProject)}`); regData = await r.json(); }
+  catch(e){ regData = null; }
+  const cur = projectsList.find(p=>p.name===currentProject);
+  const gitHtml = cur && cur.gitUrl ? ` · <a href="${qs(cur.gitUrl)}" target="_blank" style="color:var(--acc);text-decoration:none">🔗 source</a>` : '';
+  const urdHtml = cur && cur.urdGitUrl ? ` · <a href="${qs(cur.urdGitUrl)}" target="_blank" style="color:var(--acc);text-decoration:none">🔗 URD</a>` : '';
+  const branchHtml = cur && cur.branch ? ` · ${qs(cur.branch)}` : '';
+  document.getElementById('meta').innerHTML = `${qs(currentProject)}${branchHtml} · ${regData?regData.requirements.length:0} yêu cầu · ${regData?regData.commits.length:0} commit${gitHtml}${urdHtml}`;
+  renderProjectSettings(cur);
+  renderContent();
 }
 
-async function load(){
-  await loadGit();
-  const r = await fetch('/api/registry');
-  regData = await r.json();
-  document.getElementById('meta').textContent =
-    `${regData.requirements.length} requirements · ${regData.commits.length} checked commits · updated ${regData.updatedAt||'?'}`;
-  renderReqs(regData.requirements);
-  renderCommits();
+function renderProjects(){
+  const el = document.getElementById('projects');
+  if (!el) return;
+  el.innerHTML = projectsList.map(p=>{
+    const gitLink = p.gitUrl ? `<a href="${qs(p.gitUrl)}" target="_blank" onclick="event.stopPropagation()" style="color:var(--acc);font-size:11px;text-decoration:none" title="${qs(p.gitUrl)}">🔗</a>` : '';
+    const modeLabel = {pre:'chặn trước',post:'kiểm tra sau',both:'cả 2'}[p.checkMode||'post'];
+    const modeColor = {pre:'var(--warn)',post:'var(--mut)',both:'var(--acc)'}[p.checkMode||'post'];
+    return `<div class="proj-item ${p.name===currentProject?'active':''}" onclick="selectProject('${p.name}')"><span>${qs(p.name)} <span style="color:var(--mut);font-size:10px">${p.requirements||0}yc</span> ${gitLink}<br/><span style="font-size:9px;color:${modeColor}">⚙ ${modeLabel}</span></span><span class="del" onclick="event.stopPropagation();delProject('${p.name}')">✕</span></div>`;
+  }).join('');
+}
+function selectProject(name){ currentProject=name; currentDoc=null; loadAll(); }
+
+function renderProjectSettings(p){
+  const el = document.getElementById('proj-settings');
+  if(!el || !p){ el.style.display='none'; return; }
+  el.style.display='flex';
+  const mode = p.checkMode || 'post';
+  el.innerHTML = `<span style="color:var(--mut)">Chế độ kiểm tra:</span>
+    <select id="modeSelect" onchange="changeMode('${p.name}')" style="background:var(--panel2);border:1px solid var(--border);border-radius:5px;color:var(--txt);padding:3px 8px;font-family:inherit;font-size:12px">
+      <option value="post" ${mode==='post'?'selected':''}>Kiểm tra sau (post-commit)</option>
+      <option value="pre" ${mode==='pre'?'selected':''}>Chặn trước (pre-commit)</option>
+      <option value="both" ${mode==='both'?'selected':''}>Cả 2</option>
+    </select>
+    <button onclick="downloadHook('${p.name}')" style="font-size:11px">📥 Tải hook</button>
+    <span style="color:var(--mut);font-size:11px">${mode==='pre'||mode==='both'?'Cài hook vào .git/hooks/commit-msg để chặn commit FAIL':mode==='post'?'Kiểm tra sau khi commit, không chặn':''}</span>`;
+}
+async function changeMode(name){
+  const sel = document.getElementById('modeSelect');
+  if(!sel) return;
+  try {
+    await fetch(`/api/projects/${encodeURIComponent(name)}/mode`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({checkMode:sel.value})});
+    loadAll();
+  } catch(e){ alert('Lỗi: '+e.message); }
+}
+function downloadHook(name){
+  window.open(`/api/projects/${encodeURIComponent(name)}/hook`,'_blank');
+}
+async function addProject(){ const n=document.getElementById('addName').value.trim(), p=document.getElementById('addPath').value.trim(), u=document.getElementById('addUrd').value.trim(); if(!n||!p) return; const r=await api('/api/projects','POST',{name:n,path:p,urdPath:u||undefined}); if(r.error) alert(r.error); document.getElementById('addName').value=''; document.getElementById('addPath').value=''; loadAll(); }
+async function delProject(name){ if(!confirm(`Xóa dự án "${name}"?`)) return; await fetch(`/api/projects/${encodeURIComponent(name)}`,{method:'DELETE'}); if(currentProject===name) currentProject=null; loadAll(); }
+
+function switchTab(t){ tab=t; ['reqs','commits','docs','trace','cov','impact'].forEach(x=>{const b=document.getElementById('tab-'+x); if(b) b.classList.toggle('active',x===t)}); renderContent(); }
+
+function renderContent(){
+  const el=document.getElementById('content');
+  if(tab==='reqs') renderReqs(el);
+  else if(tab==='commits') renderCommits(el);
+  else if(tab==='docs') renderDocs(el);
+  else if(tab==='trace') renderTrace(el);
+  else if(tab==='cov') renderCoverage(el);
+  else if(tab==='impact') renderImpact(el);
 }
 
-function esc(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+async function renderReqs(el){
+  const reqs = regData && regData.requirements;
+  const uploadCard = `<div class="card"><h3>📤 Tải lên URD mới</h3><div style="display:flex;gap:8px;margin-bottom:8px"><input id="urdName" placeholder="ten-file.md" style="background:var(--panel2);border:1px solid var(--border);border-radius:5px;color:var(--txt);padding:5px 8px;font-family:inherit;font-size:12px;max-width:200px" /><button onclick="reviewUrd()">Review bằng LLM</button><button class="primary" onclick="uploadUrd()">Tải lên</button></div><textarea id="urdContent" placeholder="Dán nội dung URD markdown vào đây..." style="width:100%;min-height:120px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--txt);padding:8px;font-family:inherit;font-size:12px;resize:vertical"></textarea><div id="urd-review" style="margin-top:10px"></div></div>`;
+  let urdCard = '';
+  try {
+    const ud = await api('/api/urd');
+    const files = ud.files || [];
+    if (files.length) {
+      const fileList = files.map(f => `<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><code style="flex:1">${qs(f.name)}</code><span style="color:var(--mut);font-size:11px">${Math.round(f.size/1024*10)/10}KB</span><button onclick="viewUrd('${encodeURIComponent(f.name)}')">Xem</button><button onclick="downloadUrd('${encodeURIComponent(f.name)}')">Tải .md</button></div>`).join('');
+      urdCard = `<div class="card"><h3>📁 URD gốc</h3>${fileList}<div id="urd-view" style="margin-top:10px"></div></div>`;
+    }
+  } catch(e) {}
+  if(!reqs||!reqs.length){ el.innerHTML = uploadCard + urdCard + '<div class="empty">Chưa có yêu cầu. Tải lên URD ở trên hoặc thêm file markdown vào docs/urd/.</div>'; return; }
+  const groups = {};
+  for (const r of reqs) { const k = r.urdId || 'không rõ'; if (!groups[k]) groups[k] = []; groups[k].push(r); }
+  const reqCards = Object.keys(groups).map(urdId => {
+    const grp = groups[urdId];
+    const head = grp[0];
+    const header = `<div class="card" style="background:var(--panel2);border-color:var(--acc)"><h3 style="color:var(--acc)">📁 ${qs(urdId)} <span style="font-size:12px;color:var(--mut)">v${qs(head.urdVersion)} · ${head.urdFile?('`'+qs(head.urdFile)+'`'):''} · ${grp.length} yêu cầu${grp.length>1?'s':''}</span></h3></div>`;
+    const cards = grp.map(r=>{
+      const notes = r.mismatchNotes||[];
+      const sb = `<span class="badge ${r.status==='hoàn thành'?'ok':r.status==='đang làm'?'warn':'acc'}">${qs(r.status)}</span>`;
+      const nb = notes.length?`<span class="badge ${notes.some(n=>n.level==='error')?'err':'warn'}">${notes.length} ghi chú</span>`:'';
+      const commit = (r.commit||[]).map(c=>`<li><span class="sha">${qs(c.sha)}</span> ${qs(c.subject)} <span class="badge ${c.ok?'ok':'err'}">${c.ok?'ok':'lỗi'}</span></li>`).join('');
+      const ac = (r.acceptanceCriteria||[]).map(a=>`<li>${qs(a)}</li>`).join('');
+      const files = (r.affectedFiles||[]).map(f=>`<code>${qs(f)}</code>`).join(', ');
+      const nh = notes.map(n=>`<div class="note ${n.level}"><b>${qs(n.commit)}</b> · ${qs(n.type)}: ${qs(n.message)}</div>`).join('');
+      return `<div class="card"><h3>${qs(r.id)}: ${qs(r.title)} ${sb} ${nb}</h3>${ac?`<div class="ac"><b>Tiêu chí chấp nhận</b><ul>${ac}</ul></div>`:''}${files?`<div class="files"><b>File liên quan:</b> ${files}</div>`:''}${commit?`<div><b>Commit</b><ul>${commit}</ul></div>`:'<div class="meta">Chưa có commit liên kết.</div>'}${nh?`<div class="note" style="margin-top:6px"><b>Ghi chú không khớp</b>${nh}</div>`:''}</div>`;
+    }).join('');
+    return header + cards;
+  }).join('');
+  el.innerHTML = uploadCard + urdCard + reqCards;
+}
+async function viewUrd(name){
+  const view = document.getElementById('urd-view');
+  if (!view) return;
+  view.innerHTML = '<div class="empty">Đang tải…</div>';
+  try {
+    const r = await fetch(`/api/urd/${name}?project=${encodeURIComponent(currentProject)}`);
+    const md = await r.text();
+    view.innerHTML = `<div class="doc-view" style="margin-top:8px">${renderMarkdown(md)}</div>`;
+  } catch(e) { view.innerHTML = '<div class="empty">Tải thất bại.</div>'; }
+}
+async function downloadUrd(name){
+  try {
+    const r = await fetch(`/api/urd/${name}?project=${encodeURIComponent(currentProject)}`);
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = decodeURIComponent(name);
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(a.href);
+  } catch(e) { alert('Tải thất bại'); }
+}
 
-function renderReqs(reqs){
-  const el=document.getElementById('reqs');
-  if(!reqs||!reqs.length){ el.innerHTML='<div class="empty">No requirements. Add a markdown URD to docs/urd/.</div>'; return; }
-  el.innerHTML = reqs.map(r=>{
-    const notes = (r.mismatchNotes||[]);
-    const statusBadge = `<span class="badge ${r.status==='done'?'ok':r.status==='in-progress'?'warn':'acc'}">${esc(r.status)}</span>`;
-    const noteBadge = notes.length?`<span class="badge ${notes.some(n=>n.level==='error')?'err':'warn'}">${notes.length} notes</span>`:'';
-    const commits = (r.commits||[]).map(c=>`<li><span class="sha">${esc(c.sha)}</span> ${esc(c.subject)} <span class="badge ${c.ok?'ok':'err'}">${c.ok?'ok':'issues'}</span></li>`).join('');
-    const ac = (r.acceptanceCriteria||[]).map(a=>`<li>${esc(a)}</li>`).join('');
-    const files = (r.affectedFiles||[]).map(f=>`<code>${esc(f)}</code>`).join(', ');
-    const noteHtml = notes.map(n=>`<div class="note ${n.level}"><b>${esc(n.commit)}</b> · ${esc(n.type)}: ${esc(n.message)}</div>`).join('');
-    return `<div class="card">
-      <h3>${esc(r.id)}: ${esc(r.title)} ${statusBadge} ${noteBadge}</h3>
-      <div class="meta">${esc(r.urdId)} v${esc(r.urdVersion)} · tags: ${esc((r.tags||[]).join(', ')||'—')}</div>
-      ${ac?`<div class="ac"><b>Acceptance criteria</b><ul>${ac}</ul></div>`:''}
-      ${files?`<div class="files"><b>Affected files:</b> ${files}</div>`:''}
-      ${commits?`<div><b>Commits</b><ul>${commits}</ul></div>`:'<div class="meta">No commits linked yet.</div>'}
-      ${noteHtml?`<div class="notes"><b>Mismatch notes</b>${noteHtml}</div>`:''}
-    </div>`;
+function renderCommits(el){
+  const cs = regData && regData.commits;
+  if(!cs||!cs.length){ el.innerHTML='<div class="empty">Chưa kiểm tra commit. Bấm "Kiểm tra commit" ở trên.</div>'; return; }
+  el.innerHTML=cs.map(c=>{
+    const badge=`<span class="badge ${c.ok?'ok':'err'}">${c.ok?'PASS':'FAIL'}</span>`;
+    const notes=(c.notes||[]).filter(n=>n.level!=='info').map(n=>`<div class="note ${n.level}">${qs(n.type)}: ${qs(n.message)}</div>`).join('');
+    const reqs=(c.requirements||[]).map(r=>{
+      const vbadge=`<span class="badge ${r.verdict==='PASS'?'ok':r.verdict==='FAIL'?'err':'warn'}">${qs(r.verdict)}</span.0}`;
+      const acs=(r.criteria||[]).map(ac=>`<li>${ac.verdict==='PASS'?'✅':'❌'} <b>${qs(ac.criterion)}</b>: ${qs(ac.reason)}</li>`).join('');
+      return `<div style="margin-top:6px;padding:8px;border-left:3px solid ${r.verdict==='PASS'?'var(--ok)':'var(--err)'};background:rgba(255,255,255,.02)"><b>${qs(r.id)}</b>: ${qs(r.title)} ${vbadge}${r.summary?`<div class="meta">${qs(r.summary)}</div>`:''}${acs?`<ul class="ac">${acs}</ul>`:''}</div>`;
+    }).join('');
+    return `<div class="card"><div class="commit"><h3><span class="sha">${qs(c.sha)}</span> ${qs(c.subject)}</h3>${badge}</div><div class="meta">${qs(c.author)} · ${qs(c.date)}</div><div class="meta">claim: ${(c.claimed||[]).map(x=>`<span class="badge acc">${qs(x)}</span>`).join(' ')||'—'}</div>${reqs}${notes?`<div>${notes}</div>`:''}</div>`;
   }).join('');
 }
 
-function renderCommits(){
-  const el=document.getElementById('commits');
-  if(tab==='checked'){
-    const cs=regData.commits||[];
-    if(!cs.length){ el.innerHTML='<div class="empty">No commits checked yet. Click "Check recent commits".</div>'; return; }
-    el.innerHTML=cs.map(c=>{
-      const badge=`<span class="badge ${c.ok?'ok':'err'}">${c.ok?'PASS':'FAIL'}</span>`;
-      const notes=(c.notes||[]).map(n=>`<div class="note ${n.level}">${esc(n.type)}: ${esc(n.message)}</div>`).join('');
-      const extra=(c.extraFiles||[]).map(f=>`<code>${esc(f)}</code>`).join(', ');
-      return `<div class="card">
-        <div class="commit"><h3><span class="sha">${esc(c.sha)}</span> ${esc(c.subject)}</h3>${badge}</div>
-        <div class="meta">${esc(c.author)} · ${esc(c.date)}</div>
-        <div class="meta">claimed: ${(c.claimed||[]).map(x=>`<span class="badge acc">${esc(x)}</span>`).join(' ')||'—'} matched: ${(c.matched||[]).map(x=>`<span class="badge ok">${esc(x)}</span>`).join(' ')||'—'}</div>
-        ${extra?`<div class="files"><b>Extra (not in URD):</b> ${extra}</div>`:''}
-        ${notes?`<div class="notes">${notes}</div>`:''}
-      </div>`;
-    }).join('');
-  } else {
-    if(!gitCommits.length){ el.innerHTML='<div class="empty">No git history.</div>'; return; }
-    el.innerHTML=gitCommits.map(c=>{
-      const checked=(regData.commits||[]).find(x=>x.fullSha===c.sha);
-      const badge=checked?`<span class="badge ${checked.ok?'ok':'err'}">${checked.ok?'PASS':'FAIL'}</span>`:'';
-      return `<div class="card">
-        <div class="commit"><h3><span class="sha">${esc(c.sha.slice(0,7))}</span> ${esc(c.subject)}</h3>${badge}</div>
-        <div class="meta">${esc(c.author)} · ${esc(c.date)} ${checked?'':'<button onclick="checkOne(\''+c.sha+'\')">Check</button>'}</div>
-      </div>`;
-    }).join('');
+async function renderDocs(el){
+  el.innerHTML = '<div class="empty">Đang tải tài liệu…</div>';
+  try {
+    const d = await api('/api/docs'); docList = d.files||[];
+  } catch(e){ docList=[]; }
+  if(!docList.length){ el.innerHTML='<div class="empty">No usage docs yet. Click "Sinh tài liệu" to create markdown from the project source.</div>'; return; }
+  const listHtml = docList.map(f=>`<div class="doc-item ${f.name===currentDoc?'active':''}" onclick="viewDoc('${encodeURIComponent(f.name)}')">${qs(f.name)}<br/><span style="color:var(--mut);font-size:10px">${Math.round(f.size/1024*10)/10} KB</span></div>`).join('');
+  let viewHtml = '<div class="empty">Chọn tài liệu để đọc.</div>';
+  if(currentDoc){
+    try { const r = await fetch(`/api/docs/${currentDoc}?project=${encodeURIComponent(currentProject)}`); const md = await r.text(); viewHtml = renderMarkdown(md); }
+    catch(e){ viewHtml = '<div class="empty">Tải thất bại.</div>'; }
   }
+  el.innerHTML = `<div class="docs-layout"><div class="doc-list">${listHtml}</div><div class="doc-view">${viewHtml}</div></div>`;
+}
+async function viewDoc(name){ currentDoc=decodeURIComponent(name); renderDocs(document.getElementById('content')); }
+
+function renderMarkdown(md){
+  const lines = md.split(/\n/); const out=[]; let i=0; let inCode=false; let codeBuf=[];
+  const flushCode=()=>{ if(codeBuf.length){ out.push(`<pre>${qs(codeBuf.join('\n'))}</pre>`); codeBuf=[]; } };
+  while(i<lines.length){
+    let line=lines[i];
+    if(line.trim().startsWith('```')){ if(inCode){flushCode(); inCode=false;} else { if(out.length&&out[out.length-1]!=='<p></p>') out.push('<p></p>'); inCode=true;} i++; continue; }
+    if(inCode){ codeBuf.push(line); i++; continue; }
+    if(/^###\s/.test(line)){ flushCode(); out.push(`<h3>${inline(line.replace(/^###\s/,''))}</h3>`); i++; continue; }
+    if(/^##\s/.test(line)){ flushCode(); out.push(`<h2>${inline(line.replace(/^##\s/,''))}</h2>`); i++; continue; }
+    if(/^#\s/.test(line)){ flushCode(); out.push(`<h1>${inline(line.replace(/^#\s/,''))}</h1>`); i++; continue; }
+    if(/^\|/.test(line)){ flushCode(); const rows=[]; while(i<lines.length&&/^\|/.test(lines[i])){ rows.push(lines[i].split('|').slice(1,-1).map(c=>c.trim())); i++; } const sep=rows[1]&&rows[1].every(c=>/^[-:]+$/.test(c)); const head=rows[0], body=sep?rows.slice(2):rows; let t=`<table>`; if(sep){t+=`<tr>${head.map(c=>`<th>${inline(c)}</th>`).join('')}</tr>`;} body.forEach(r=>{t+=`<tr>${r.map(c=>`<td>${inline(c)}</td>`).join('')}</tr>`;}); t+=`</table>`; out.push(t); continue; }
+    if(/^\s*[-*]\s/.test(line)){ flushCode(); const items=[]; while(i<lines.length&&/^\s*[-*]\s/.test(lines[i])){ items.push(inline(lines[i].replace(/^\s*[-*]\s/,''))); i++; } out.push(`<ul>${items.map(it=>`<li>${it}</li>`).join('')}</ul>`); continue; }
+    if(/^>\s/.test(line)){ flushCode(); out.push(`<blockquote>${inline(line.replace(/^>\s/,''))}</blockquote>`); i++; continue; }
+    if(line.trim()===''){ flushCode(); out.push('<p></p>'); i++; continue; }
+    flushCode(); out.push(`<p>${inline(line)}</p>`); i++;
+  }
+  flushCode();
+  return out.join('\n');
+}
+function inline(s){ return qs(s).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code>$1</code>'); }
+
+async function checkRecent(){
+  const btn = document.querySelector('nav button[onclick="checkRecent()"]');
+  if(btn){ btn.textContent='Đang kiểm tra...'; btn.disabled=true; }
+  document.getElementById('meta').innerHTML = 'Đang kiểm tra commit bằng LLM... (có thể mất 30-60s)';
+  try {
+    const r = await api('/api/check/recent','POST');
+    if(r.error) alert(r.error);
+  } catch(e) { alert('Lỗi kiểm tra: '+e.message); }
+  if(btn){ btn.textContent='Kiểm tra commit'; btn.disabled=false; }
+  await loadAll();
+  if(tab!=='commits') switchTab('commits');
+}
+async function genDocs(){ const r=await api('/api/generate-docs','POST'); if(r.error) alert(r.error); else { currentDoc=null; if(tab!=='docs') switchTab('docs'); else loadAll(); } }
+
+async function reviewUrd(){
+  const content = document.getElementById('urdContent').value.trim();
+  const reviewEl = document.getElementById('urd-review');
+  if(!content){ alert('Vui lòng dán nội dung URD vào'); return; }
+  if(!reviewEl) return;
+  reviewEl.innerHTML = '<div class="empty">Đang review bằng LLM...</div>';
+  try {
+    const r = await api('/api/urd/review','POST',{content});
+    if(r.error){ reviewEl.innerHTML = '<div class="note error">'+qs(r.error)+'</div>'; return; }
+    const vbadge = r.verdict==='TỐT'?'ok':r.verdict==='KÉM'?'err':'warn';
+    const strengths = (r.strengths||[]).map(s=>'<li>✅ '+qs(s)+'</li>').join('');
+    const weaknesses = (r.weaknesses||[]).map(s=>'<li>⚠️ '+qs(s)+'</li>').join('');
+    const suggestions = (r.suggestions||[]).map(s=>'<li>💡 '+qs(s)+'</li>').join('');
+    const reqs = (r.requirements||[]).map(rq=>'<div style="margin:4px 0;padding:4px 8px;border-left:3px solid '+(rq.quality==='TỐT'?'var(--ok)':'var(--warn)')+'"><b>'+qs(rq.id)+'</b>: '+qs(rq.title)+' — '+qs(rq.quality)+(rq.comment?' <span style="color:var(--mut)">'+qs(rq.comment)+'</span>':'')+'</div>').join('');
+    reviewEl.innerHTML = '<div class="card" style="margin-top:8px"><h3>🔍 Kết quả review <span class="badge '+vbadge+'">'+qs(r.verdict)+'</span> <span style="color:var(--mut)">điểm: '+r.score+'/10</span></h3>'+(strengths?'<b>Điểm mạnh</b><ul class="ac">'+strengths+'</ul>':'')+(weaknesses?'<b>Điểm yếu</b><ul class="ac">'+weaknesses+'</ul>':'')+(suggestions?'<b>Gợi ý</b><ul class="ac">'+suggestions+'</ul>':'')+(reqs?'<b>Chi tiết yêu cầu</b>'+reqs:'')+'</div>';
+  } catch(e){ reviewEl.innerHTML = '<div class="note error">Lỗi: '+qs(e.message)+'</div>'; }
 }
 
-async function checkOne(sha){ await fetch('/api/check/'+sha); load(); }
-function switchTab(t){ tab=t; document.getElementById('tab-checked').classList.toggle('active',t==='checked'); document.getElementById('tab-git').classList.toggle('active',t==='git'); renderCommits(); }
+async function uploadUrd(){
+  const name = document.getElementById('urdName').value.trim();
+  const content = document.getElementById('urdContent').value.trim();
+  if(!name || !content){ alert('Vui lòng nhập tên file và nội dung URD'); return; }
+  try {
+    const r = await api('/api/urd','POST',{name,content});
+    if(r.error){ alert(r.error); return; }
+    document.getElementById('urdName').value = '';
+    document.getElementById('urdContent').value = '';
+    document.getElementById('urd-review').innerHTML = '';
+    alert('Đã tải lên '+r.saved+' — '+r.requirements+' yêu cầu');
+    loadAll();
+  } catch(e){ alert('Lỗi: '+e.message); }
+}
 
-load();
+async function renderTrace(el){
+  el.innerHTML = '<div class="empty">Đang tải bản đồ...</div>';
+  try {
+    const data = await api('/api/traceability');
+    const reqs = data.requirements || [];
+    if(!reqs.length){ el.innerHTML='<div class="empty">Chưa có yêu cầu.</div>'; return; }
+    let rows = reqs.map(r=>{
+      const commits = (r.commits||[]).map(c=>'<span class="badge '+(c.ok?'ok':'err')+'" title="'+qs(c.subject)+'">'+qs(c.sha)+'</span>').join(' ');
+      const srcs = (r.sourceFiles||[]).map(f=>'<code style="font-size:10px">'+qs(f)+'</code>').join(' ');
+      const tests = (r.testFiles||[]).map(f=>'<code style="font-size:10px;color:var(--ok)">'+qs(f)+'</code>').join(' ') || '<span style="color:var(--err);font-size:11px">thiếu</span>';
+      const status = r.status==='done'?'<span class="badge ok">PASS</span>':(r.commits&&r.commits.length?'<span class="badge err">FAIL</span>':'<span class="badge warn">chưa bắt đầu</span>');
+      return '<tr><td><b>'+qs(r.id)+'</b></td><td>'+qs(r.title)+'</td><td>'+qs(r.urdId)+'</td><td>'+status+'</td><td style="font-size:11px">'+(commits||'—')+'</td><td style="font-size:11px">'+(srcs||'—')+'</td><td style="font-size:11px">'+tests+'</td></tr>';
+    }).join('');
+    el.innerHTML = '<div class="card"><h3>📋 Traceability Matrix</h3><p class="meta">'+reqs.length+' yêu cầu · '+data.totalTests+' file test</p><table style="width:100%;border-collapse:collapse;font-size:12px"><tr style="background:var(--panel2)"><th style="text-align:left;padding:6px;border:1px solid var(--border)">ID</th><th style="text-align:left;padding:6px;border:1px solid var(--border)">Tiêu đề</th><th style="text-align:left;padding:6px;border:1px solid var(--border)">URD</th><th style="text-align:left;padding:6px;border:1px solid var(--border)">Trạng thái</th><th style="text-align:left;padding:6px;border:1px solid var(--border)">Commit</th><th style="text-align:left;padding:6px;border:1px solid var(--border)">Source</th><th style="text-align:left;padding:6px;border:1px solid var(--border)">Test</th></tr>'+rows+'</table></div>';
+  } catch(e){ el.innerHTML='<div class="empty">Lỗi: '+qs(e.message)+'</div>'; }
+}
+
+async function renderCoverage(el){
+  el.innerHTML = '<div class="empty">Đang tải...</div>';
+  try {
+    const d = await api('/api/coverage');
+    const pct = d.percentage || 0;
+    const barColor = pct>=80?'var(--ok)':pct>=50?'var(--warn)':'var(--err)';
+    let urdRows = Object.entries(d.byUrd||{}).map(([k,v])=>{
+      const p = v.total ? Math.round(v.pass/v.total*100) : 0;
+      return '<tr><td style="padding:6px;border:1px solid var(--border)"><b>'+qs(k)+'</b></td><td style="text-align:center;padding:6px;border:1px solid var(--border)">'+v.total+'</td><td style="text-align:center;padding:6px;border:1px solid var(--border);color:var(--ok)">'+v.pass+'</td><td style="text-align:center;padding:6px;border:1px solid var(--border);color:var(--err)">'+v.fail+'</td><td style="text-align:center;padding:6px;border:1px solid var(--border);color:var(--mut)">'+v.notStarted+'</td><td style="text-align:center;padding:6px;border:1px solid var(--border)">'+p+'%</td></tr>';
+    }).join('');
+    let trendHtml = '';
+    if(d.trend && d.trend.length){
+      trendHtml = '<div class="card" style="margin-top:12px"><h3>Xu hướng coverage</h3>';
+      for(const t of d.trend){
+        const w = t.coverage;
+        trendHtml += '<div style="display:flex;align-items:center;gap:8px;margin:3px 0"><span style="color:var(--acc);font-size:11px;width:60px">'+qs(t.sha)+'</span><div style="flex:1;background:var(--panel2);border-radius:4px;height:18px;position:relative"><div style="width:'+w+'%;height:100%;background:'+barColor+';border-radius:4px"></div><span style="position:absolute;left:8px;top:1px;font-size:10px;color:var(--txt)">'+t.coverage+'% ('+t.pass+'/'+t.total+')</span></div></div>';
+      }
+      trendHtml += '</div>';
+    }
+    el.innerHTML = '<div class="card"><h3>📊 Sức khỏe project</h3><div style="display:flex;gap:20px;align-items:center;margin:10px 0"><div style="width:120px;height:120px;border-radius:50%;background:conic-gradient('+barColor+' '+(pct*3.6)+'deg,var(--panel2) 0);display:flex;align-items:center;justify-content:center"><div style="width:90px;height:90px;border-radius:50%;background:var(--panel);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:bold;color:'+barColor+'">'+pct+'%</div></div><div><div style="font-size:14px;margin:4px 0">✅ PASS: <b style="color:var(--ok)">'+d.pass+'</b></div><div style="font-size:14px;margin:4px 0">❌ FAIL: <b style="color:var(--err)">'+d.fail+'</b></div><div style="font-size:14px;margin:4px 0">⏳ Chưa bắt đầu: <b style="color:var(--mut)">'+d.notStarted+'</b></div><div style="font-size:14px;margin:4px 0">Tổng: <b>'+d.total+'</b> yêu cầu</div></div></div></div><div class="card"><h3>Theo URD</h3><table style="width:100%;border-collapse:collapse;font-size:12px"><tr style="background:var(--panel2)"><th style="text-align:left;padding:6px;border:1px solid var(--border)">URD</th><th style="padding:6px;border:1px solid var(--border)">Tổng</th><th style="padding:6px;border:1px solid var(--border)">PASS</th><th style="padding:6px;border:1px solid var(--border)">FAIL</th><th style="padding:6px;border:1px solid var(--border)">Chưa</th><th style="padding:6px;border:1px solid var(--border)">%</th></tr>'+urdRows+'</table></div>'+trendHtml;
+  } catch(e){ el.innerHTML='<div class="empty">Lỗi: '+qs(e.message)+'</div>'; }
+}
+
+async function renderImpact(el){
+  el.innerHTML = '<div class="empty">Đang tải...</div>';
+  try {
+    const d = await api('/api/impact');
+    const files = d.urdFiles || [];
+    if(!files.length){ el.innerHTML='<div class="empty">Chưa có URD.</div>'; return; }
+    let html = files.map(f=>{
+      const reqs = (f.requirements||[]).map(r=>{
+        const srcs = (r.sourceFiles||[]).map(s=>'<code style="font-size:10px">'+qs(s)+'</code>').join(' ');
+        const statusBadge = r.hasFail?'<span class="badge err">có FAIL</span>':(r.status==='done'?'<span class="badge ok">OK</span>':(r.commitCount?'<span class="badge warn">đang làm</span>':'<span class="badge acc">chưa code</span>'));
+        return '<tr><td style="padding:6px;border:1px solid var(--border)"><b>'+qs(r.id)+'</b></td><td style="padding:6px;border:1px solid var(--border)">'+qs(r.title)+'</td><td style="padding:6px;border:1px solid var(--border)">'+statusBadge+'</td><td style="padding:6px;border:1px solid var(--border);font-size:11px">'+r.commitCount+'</td><td style="padding:6px;border:1px solid var(--border);font-size:11px">'+(srcs||'—')+'</td></tr>';
+      }).join('');
+      return '<div class="card"><h3>📄 '+qs(f.file)+' <span style="color:var(--mut);font-size:12px">— '+f.requirementCount+' yêu cầu</span></h3><table style="width:100%;border-collapse:collapse;font-size:12px"><tr style="background:var(--panel2)"><th style="text-align:left;padding:6px;border:1px solid var(--border)">ID</th><th style="text-align:left;padding:6px;border:1px solid var(--border)">Tiêu đề</th><th style="text-align:left;padding:6px;border:1px solid var(--border)">Trạng thái</th><th style="padding:6px;border:1px solid var(--border)">Commit</th><th style="text-align:left;padding:6px;border:1px solid var(--border)">Source ảnh hưởng</th></tr>'+reqs+'</table></div>';
+    }).join('');
+    if(d.urdCommits && d.urdCommits.length){
+      html = '<div class="card"><h3>🔄 Lịch sử thay đổi URD</h3>'+d.urdCommits.slice(0,5).map(c=>'<div class="meta"><span class="sha">'+qs(c.sha.slice(0,7))+'</span> '+qs(c.subject)+' <span style="color:var(--mut)">'+qs(c.date)+'</span></div>').join('')+'</div>'+html;
+    }
+    el.innerHTML = html;
+  } catch(e){ el.innerHTML='<div class="empty">Lỗi: '+qs(e.message)+'</div>'; }
+}
+
+loadAll();
 </script>
 </body>
 </html>

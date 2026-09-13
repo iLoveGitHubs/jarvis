@@ -176,7 +176,7 @@ function renderContent(){
 
 async function renderReqs(el){
   const reqs = regData && regData.requirements;
-  const uploadCard = `<div class="card"><h3>📤 Tải lên URD mới</h3><div style="display:flex;gap:8px;margin-bottom:8px"><input id="urdName" placeholder="ten-file.md" style="background:var(--panel2);border:1px solid var(--border);border-radius:5px;color:var(--txt);padding:5px 8px;font-family:inherit;font-size:12px;max-width:200px" /><button onclick="reviewUrd()">Review bằng LLM</button><button class="primary" onclick="uploadUrd()">Tải lên</button></div><textarea id="urdContent" placeholder="Dán nội dung URD markdown vào đây..." style="width:100%;min-height:120px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--txt);padding:8px;font-family:inherit;font-size:12px;resize:vertical"></textarea><div id="urd-review" style="margin-top:10px"></div></div>`;
+  const uploadCard = `<div class="card"><h3>📤 Tải lên URD mới</h3><div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap"><input id="urdName" placeholder="ten-file.md" style="background:var(--panel2);border:1px solid var(--border);border-radius:5px;color:var(--txt);padding:5px 8px;font-family:inherit;font-size:12px;max-width:200px" /><button onclick="standardizeUrd()">✨ Chuẩn hóa URD</button><button onclick="reviewUrd()">Review bằng LLM</button><button class="primary" onclick="uploadUrd()">Tải lên</button></div><textarea id="urdContent" placeholder="Dán URD đơn giản vào đây (vd: ### REQ-001: Tạo tài sản mới)&#10;Jarvis sẽ sinh Acceptance Criteria tự động khi bấm Chuẩn hóa" style="width:100%;min-height:120px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--txt);padding:8px;font-family:inherit;font-size:12px;resize:vertical"></textarea><div id="urd-review" style="margin-top:10px"></div></div>`;
   let urdCard = '';
   try {
     const ud = await api('/api/urd');
@@ -307,6 +307,22 @@ async function checkAll(){
   if(tab!=='commits') switchTab('commits');
 }
 async function genDocs(){ const r=await api('/api/generate-docs','POST'); if(r.error) alert(r.error); else { currentDoc=null; if(tab!=='docs') switchTab('docs'); else loadAll(); } }
+
+async function standardizeUrd(){
+  const content = document.getElementById('urdContent').value.trim();
+  const reviewEl = document.getElementById('urd-review');
+  if(!content){ alert('Vui lòng dán nội dung URD vào'); return; }
+  if(!reviewEl) return;
+  reviewEl.innerHTML = '<div class="empty">Đang chuẩn hóa URD — sinh Acceptance Criteria bằng LLM...</div>';
+  try {
+    const r = await api('/api/urd/standardize','POST',{content});
+    if(r.error){ reviewEl.innerHTML = '<div class="note error">'+qs(r.error)+'</div>'; return; }
+    if(r.content){
+      document.getElementById('urdContent').value = r.content;
+      reviewEl.innerHTML = '<div class="card" style="margin-top:8px;border-color:var(--ok)"><h3>✨ Đã chuẩn hóa URD</h3><p class="meta">Nội dung đã được cập nhật trong ô textarea phía trên. Review lại rồi bấm "Tải lên" để lưu.</p><div class="doc-view" style="margin-top:8px;max-height:400px;overflow-y:auto">'+renderMarkdown(r.content)+'</div></div>';
+    }
+  } catch(e){ reviewEl.innerHTML = '<div class="note error">Lỗi: '+qs(e.message)+'</div>'; }
+}
 
 async function reviewUrd(){
   const content = document.getElementById('urdContent').value.trim();

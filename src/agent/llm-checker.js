@@ -169,4 +169,39 @@ async function reviewUrd(content) {
   }
 }
 
-module.exports = { checkRequirement, hasLlm, llmConfig, reviewUrd };
+function buildStandardizePrompt(content) {
+  return `Bạn là một chuyên gia phân tích yêu cầu phần mềm. Nhiệm vụ: chuẩn hóa tài liệu URD markdown bằng cách SINH acceptance criteria (AC) tự động cho mỗi yêu cầu.
+
+URD hiện tại (có thể đơn giản, thiếu AC):
+\`\`\`markdown
+${content}
+\`\`\`
+
+Hướng dẫn:
+- Đọc từng yêu cầu (### REQ-xxx hoặc ### CR-xxx) trong URD.
+- Với mỗi yêu cầu, SINH 2-5 acceptance criteria cụ thể, có thể kiểm tra được (status code, giá trị trả về, hành vi rõ ràng).
+- Nếu người dùng đã khai báo exception/message, dùng chúng để tạo AC liên quan (vd: "Trùng code trả 409 Conflict").
+- Giữ nguyên frontmatter, tiêu đề, mô tả của mỗi yêu cầu.
+- Thêm phần **Acceptance Criteria:** dưới mỗi yêu cầu nếu chưa có.
+- Nếu yêu cầu đã có AC, giữ nguyên và bổ sung nếu thiếu.
+- Trả về TOÀN BỘ URD markdown đã chuẩn hóa (đầy đủ frontmatter + tất cả yêu cầu + AC).
+- KHÔNG thêm markdown fence (\`\`\`) quanh kết quả. Trả về markdown thuần.`;
+}
+
+async function standardizeUrd(content) {
+  if (!hasLlm()) {
+    return { error: 'LLM chưa cấu hình', content: null };
+  }
+  const truncated = content.length > 6000 ? content.slice(0, 6000) + '\n... (cắt bớt)' : content;
+  try {
+    const raw = await callLLM(buildStandardizePrompt(truncated));
+    let text = raw.trim();
+    const fence = text.match(/```(?:markdown)?\s*([\s\S]*?)```/);
+    if (fence) text = fence[1].trim();
+    return { content: text, error: null };
+  } catch (e) {
+    return { error: 'LLM lỗi: ' + e.message, content: null };
+  }
+}
+
+module.exports = { checkRequirement, hasLlm, llmConfig, reviewUrd, standardizeUrd };

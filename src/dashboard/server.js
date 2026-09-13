@@ -402,6 +402,19 @@ async function handleCloneProject(req, res) {
   }
 }
 
+async function handleStandardizeUrd(req, res, ctx) {
+  try {
+    const body = JSON.parse(await readBody(req));
+    const content = body.content || '';
+    if (!content) return json(res, 400, { error: 'Thiếu nội dung URD' });
+    const result = await llm.standardizeUrd(content);
+    if (result.error) return json(res, 400, { error: result.error });
+    return json(res, 200, { content: result.content });
+  } catch (e) {
+    return json(res, 400, { error: e.message });
+  }
+}
+
 function generateHookScript(projectName, baseUrl) {
   return `#!/bin/sh
 # Jarvis pre-commit/commit-msg hook — project: ${projectName}
@@ -501,6 +514,7 @@ function createServer(opts = {}) {
     if (req.method === 'POST' && pathname === '/api/check/staged') return handleCheckStaged(req, res, ctx);
     if (req.method === 'POST' && pathname === '/api/urd') return handleUploadUrd(req, res, ctx);
     if (req.method === 'POST' && pathname === '/api/urd/review') return handleReviewUrd(req, res, ctx);
+    if (req.method === 'POST' && pathname === '/api/urd/standardize') return handleStandardizeUrd(req, res, ctx);
     if (pathname.startsWith('/api/')) return handleApi(req, res, pathname, query, ctx);
     return handleStatic(req, res, pathname);
   });

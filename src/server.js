@@ -22,12 +22,15 @@ async function bootstrapProject(name) {
     const reg = db.load(ctx.registryFile);
     db.syncRequirements(reg, reqs);
     db.save(reg, ctx.registryFile);
-    console.log(`[urd-guardian] ${name}: ${reqs.length} requirements synced, scanning 10 recent commits in background...`);
+    console.log(`[urd-guardian] ${name}: ${reqs.length} requirements synced, scanning ALL REQ-claiming commits...`);
     const gitReader = require('./agent/git-reader');
-    const { checkCommit } = require('./agent/commit-checker');
-    const recentCommits = gitReader.listCommits(10, ctx.root);
+    const { checkCommit, parseClaimedRequirements } = require('./agent/commit-checker');
+    const allCommits = gitReader.listCommits(1000, ctx.root);
     let checked = 0;
-    for (const c of recentCommits) {
+    let skipped = 0;
+    for (const c of allCommits) {
+      const claimed = parseClaimedRequirements(c.subject, '');
+      if (!claimed.length) { skipped++; continue; }
       try {
         const result = await checkCommit(c.sha, { root: ctx.root, urdDir: ctx.urdDir });
         const regUpd = db.load(ctx.registryFile);
@@ -36,7 +39,8 @@ async function bootstrapProject(name) {
         checked++;
       } catch (_e) {}
     }
-    console.log(`[urd-guardian] ${name}: ${checked}/${recentCommits.length} commits checked`);
+    try { projects.updateProject(name, { scanStatus: 'full' }); } catch (_e) {}
+    console.log(`[urd-guardian] ${name}: ${checked} REQ-commits checked, ${skipped} skipped, ${allCommits.length} total`);
   } catch (e) {
     console.error(`[urd-guardian] bootstrap error for ${name}: ${e.message}`);
   }

@@ -294,17 +294,46 @@ async function checkRecent(){
   if(tab!=='commits') switchTab('commits');
 }
 
+let scanPollTimer = null;
+
 async function checkAll(){
   const btn = document.querySelector('nav button[onclick="checkAll()"]');
   if(btn){ btn.textContent='Đang quét...'; btn.disabled=true; }
-  document.getElementById('meta').innerHTML = 'Đang quét TOÀN BỘ commit trong background... Vào tab Commit để xem kết quả dần dần';
+  document.getElementById('meta').innerHTML = 'Đang quét TOÀN BỘ commit trong background...';
   try {
-    const r = await api('/api/check/all','POST');
-    if(r.error){ alert(r.error); }
-    else { alert(r.message || 'Đang quét...'); }
+    const r = await api('/api/check/all?force=true','POST');
+    if(r.error){ alert(r.error); if(btn){btn.textContent='Quét toàn bộ';btn.disabled=false;} return; }
   } catch(e) { alert('Lỗi: '+e.message); }
   if(btn){ btn.textContent='Quét toàn bộ'; btn.disabled=false; }
   if(tab!=='commits') switchTab('commits');
+  startScanPoll();
+}
+
+function startScanPoll(){
+  if(scanPollTimer) clearInterval(scanPollTimer);
+  let el = document.getElementById('scan-progress');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'scan-progress';
+    el.style.cssText = 'padding:6px 16px;background:var(--panel);border-bottom:1px solid var(--border);font-size:12px;display:flex;align-items:center;gap:10px';
+    document.querySelector('header').after(el);
+  }
+  el.style.display = 'flex';
+  scanPollTimer = setInterval(async ()=>{
+    try {
+      const p = await api('/api/scan/progress');
+      const pct = p.total ? Math.round((p.checked + p.skipped) / p.total * 100) : 0;
+      const bar = p.total ? `<div style="flex:1;background:var(--panel2);border-radius:4px;height:20px;position:relative;min-width:200px"><div style="width:${pct}%;height:100%;background:var(--acc);border-radius:4px;transition:width .5s"></div><span style="position:absolute;left:8px;top:2px;font-size:11px;color:var(--txt)">${p.checked + p.skipped}/${p.total} commit (${pct}%)</span></div>` : '';
+      const cur = p.current ? ` <span style="color:var(--mut);font-size:11px">đang check: ${qs(p.current)}</span>` : '';
+      el.innerHTML = `<span style="color:var(--acc)">Đang quét:</span> ${bar}${cur}`;
+      await loadAll();
+      if(!p.scanning){
+        clearInterval(scanPollTimer); scanPollTimer=null;
+        el.innerHTML = `<span style="color:var(--ok)">✓ Quét xong:</span> ${p.checked} commit đã check, ${p.skipped} bỏ qua, tổng ${p.total}`;
+        setTimeout(()=>{ el.style.display='none'; }, 5000);
+      }
+    } catch(_e){}
+  }, 3000);
 }
 async function genDocs(){ const r=await api('/api/generate-docs','POST'); if(r.error) alert(r.error); else { currentDoc=null; if(tab!=='docs') switchTab('docs'); else loadAll(); } }
 

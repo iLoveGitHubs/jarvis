@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const url = require('url');
 const { execSync } = require('child_process');
-const { ROOT, DEFAULT_DIRS, readText, rel, ensureDir } = require('../store/fs-utils');
+const { ROOT, DEFAULT_DIRS, readText, readJson, writeJson, rel, ensureDir } = require('../store/fs-utils');
 const db = require('../store/db');
 const projects = require('../store/projects');
 const { loadAllUrd, flattenRequirements } = require('../agent/urd-reader');
@@ -146,26 +146,40 @@ async function handleApi(req, res, pathname, query, ctx) {
     }
     case '/api/check/all': {
       const force = query.force === 'true';
+      const progressFile = path.join(DEFAULT_DIRS.data, 'scan-progress', ctx.projectName + '.json');
+      ensureDir(path.dirname(progressFile));
+      const initProgress = { total: 0, checked: 0, skipped: 0, scanning: true, startedAt: new Date().toISOString() };
+      writeJson(progressFile, initProgress);
       (async () => {
         const allCommits = git.listCommits(1000, ctx.root);
         const urds = loadAllUrd(ctx.urdDir);
         const reqs = flattenRequirements(urds);
         let checked = 0;
         let skipped = 0;
+        const total = allCommits.length;
+        writeJson(progressFile, { ...initProgress, total });
         for (const c of allCommits) {
           const reg = db.load(ctx.registryFile);
           db.syncRequirements(reg, reqs);
           const already = reg.commits.find((x) => x.sha === c.sha);
-          if (already && !force) { skipped++; continue; }
+          if (already && !force) { skipped++; writeJson(progressFile, { total, checked, skipped, scanning: true, current: c.sha.substring(0,7), currentSubject: c.subject }); continue; }
           const result = await checkCommit(c.sha, { root: ctx.root, urdDir: ctx.urdDir });
           db.upsertCommit(reg, result);
           db.save(reg, ctx.registryFile);
           checked++;
+          writeJson(progressFile, { total, checked, skipped, scanning: true, current: c.sha.substring(0,7), currentSubject: c.subject });
         }
         try { projects.updateProject(ctx.projectName, { scanStatus: 'full' }); } catch (_e) {}
-        console.log(`[urd-guardian] ${ctx.projectName}: ${force?'force ':''}scan done — ${checked} checked, ${skipped} skipped, ${allCommits.length} total`);
+        writeJson(progressFile, { total, checked, skipped, scanning: false, finishedAt: new Date().toISOString() });
+        console.log(`[urd-guardian] ${ctx.projectName}: ${force?'force ':''}scan done — ${checked} checked, ${skipped} skipped, ${total} total`);
       })();
       return json(res, 200, { status: 'started', message: force ? 'Đang quét lại toàn bộ (force)' : 'Đang quét toàn bộ commit trong background' });
+    }
+    case '/api/scan/progress': {
+      const progressFile = path.join(DEFAULT_DIRS.data, 'scan-progress', ctx.projectName + '.json');
+      const p = readJson(progressFile, null);
+      if (!p) return json(res, 200, { scanning: false, total: 0, checked: 0, skipped: 0 });
+      return json(res, 200, p);
     }
     case '/api/generate-docs': {
       const result = generateAll({ sourceDir: ctx.sourceDir, usageDir: ctx.usageDir, urdDir: ctx.urdDir, projectRoot: ctx.root });
@@ -385,7 +399,7 @@ async function handleCloneProject(req, res) {
     ensureDir(projectsDir);
     const targetPath = path.join(projectsDir, name);
     if (fs.existsSync(targetPath)) return json(res, 400, { error: `Thư mục đã tồn tại: ${targetPath}` });
-    execSync(`git clone --depth 1 "${gitUrl}" "${targetPath}"`, { stdio: 'ignore', timeout: 60000 });
+    execSync(`git clone "${gitUrl}" "${targetPath}"`, { stdio: 'ignore', timeout: 120000 });
     let urdPath = null;
     if (urdGitUrl) {
       urdPath = path.join(projectsDir, name + '-urd');

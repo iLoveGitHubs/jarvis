@@ -42,7 +42,7 @@ function upsertRequirement(reg, req) {
     acceptanceCriteria: req.acceptanceCriteria,
     affectedFiles: req.affectedFiles,
     tags: req.tags || [],
-    status: req.status || 'open',
+    status: idx > -1 ? reg.requirements[idx].status : (req.status || 'open'),
     commits: idx > -1 ? reg.requirements[idx].commits || [] : [],
     updatedAt: new Date().toISOString(),
   };
@@ -73,7 +73,8 @@ function upsertCommit(reg, check) {
     const r = reg.requirements.find((x) => x.id === res.id);
     if (r) {
       if (!r.commits.includes(check.sha)) r.commits.push(check.sha);
-      r.status = res.verdict === 'PASS' ? 'done' : 'in-progress';
+      if (res.verdict === 'PASS') r.status = 'done';
+      else if (r.status !== 'done') r.status = 'in-progress';
     }
   }
   return record;

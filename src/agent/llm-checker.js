@@ -66,11 +66,18 @@ function callLLM(prompt) {
   });
 }
 
-function buildPrompt(req, diff) {
+function buildPrompt(req, diff, fileContents) {
   const acList = (req.acceptanceCriteria && req.acceptanceCriteria.length)
     ? req.acceptanceCriteria.map((ac) => `- ${ac}`).join('\n')
     : '- Thay đổi code hiện thực yêu cầu: ' + (req.description || req.title);
-  return `Bạn là một reviewer code nghiêm ngặt. Cho trước diff của một git commit và một yêu cầu phần mềm với tiêu chí chấp nhận, hãy xác định xem diff có thỏa mãn từng tiêu chí không.
+  let fileContext = '';
+  if (fileContents && fileContents.length) {
+    fileContext = '\n\nNội dung đầy đủ các file bị thay đổi (để xác minh AC đã được hiện thực trong code hiện tại):\n';
+    for (const fc of fileContents) {
+      fileContext += `\n--- ${fc.file} ---\n\`\`\`\n${fc.content}\n\`\`\`\n`;
+    }
+  }
+  return `Bạn là một reviewer code nghiêm ngặt. Cho trước diff của một git commit, nội dung đầy đủ các file bị thay đổi, và một yêu cầu phần mềm với tiêu chí chấp nhận, hãy xác định xem code có thỏa mãn từng tiêu chí không.
 
 Yêu cầu: ${req.id} — ${req.title}
 Mô tả: ${req.description || '(không có)'}
@@ -82,14 +89,15 @@ Commit diff (unified):
 \`\`\`diff
 ${diff}
 \`\`\`
-
+${fileContext}
 Hướng dẫn:
-- Phân tích các thay đổi code thực tế trong diff.
-- Cho MỖI tiêu chí chấp nhận, quyết định PASS (diff rõ ràng thỏa mãn) hoặc FAIL (không thỏa mãn, hoặc thiếu bằng chứng).
-- Nghiêm ngặt: nếu diff không rõ ràng hiện thực tiêu chí, đánh dấu FAIL.
-- Trả về CHỈ JSON hợp lệ, không có markdown fence, theo cấu trúc chính xác:
-{"criteria":[{"criterion":"AC1","verdict":"PASS","reason":"một câu tiếng Việt"}],"overall":"PASS","summary":"một câu tiếng Việt"}`;
-}
+- Phân tích cả diff VÀ nội dung đầy đủ các file để xác minh tiêu chí.
+- Một tiêu chí ĐẠT (PASS) nếu code hiện tại có vẻ hiện thực tiêu chí đó.
+- Một tiêu chí KHÔNG ĐẠT (FAIL) CHỈ khi có bằng chứng rõ ràng rằng tiêu chí KHÔNG được thỏa mãn (vd: thiếu endpoint, logic sai, trả sai status code).
+- Nếu không đủ bằng chứng để xác minh chắc chắn, hãy đánh dấu PASS (benefit of the doubt) thay vì FAIL.
+- overall = PASS nếu tất cả tiêu chí PASS, FAIL chỉ nếu có ít nhất 1 tiêu chí FAIL rõ ràng.
+- Trả về CHỈ JSON hợp lệ, không có markdown fence, theo cấu trúc:
+{"criteria":[{"criterion":"AC1","verdict":"PASS","reason":"một câu tiếng Việt"}],"overall":"PASS","summary":"một câu tiếng Việt"}`;}
 
 function parseVerdict(raw, reqId) {
   let text = raw.trim();
@@ -110,13 +118,13 @@ function parseVerdict(raw, reqId) {
   }
 }
 
-async function checkRequirement(req, diff) {
+async function checkRequirement(req, diff, fileContents) {
   if (!hasLlm()) {
     return { criteria: [], overall: 'UNCHECKED', summary: 'LLM not configured (LLM_API_KEY missing)' };
   }
-  const truncated = diff.length > 8000 ? diff.slice(0, 8000) + '\n... (truncated)' : diff;
+  const truncated = diff.length > 6000 ? diff.slice(0, 6000) + '\n... (cắt bớt)' : diff;
   try {
-    const raw = await callLLM(buildPrompt(req, truncated));
+    const raw = await callLLM(buildPrompt(req, truncated, fileContents));
     return parseVerdict(raw, req.id);
   } catch (e) {
     return { criteria: [], overall: 'ERROR', summary: 'LLM call failed: ' + e.message };

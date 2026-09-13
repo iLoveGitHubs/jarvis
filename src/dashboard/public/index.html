@@ -21,8 +21,8 @@
   .proj-item { padding:7px 9px; border-radius:6px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; margin-bottom:3px; font-size:12px; }
   .proj-item:hover { background:var(--panel2); }
   .proj-item.active { background:var(--panel2); border:1px solid var(--acc); }
-  .proj-item .del { color:var(--err); opacity:0; font-size:10px; }
-  .proj-item:hover .del { opacity:.7; }
+  .proj-item .del { color:var(--err); opacity:.4; font-size:10px; }
+  .proj-item:hover .del { opacity:.9; }
   .main { overflow-y:auto; padding:14px 18px; }
   .tabs { display:flex; gap:4px; margin-bottom:14px; border-bottom:1px solid var(--border); }
   .tabs button { background:transparent; border:none; border-bottom:2px solid transparent; border-radius:0; padding:8px 14px; }
@@ -60,20 +60,17 @@
   <span class="sub" id="meta">loading…</span>
   <nav>
     <button onclick="checkRecent()">Kiểm tra commit</button>
+    <button onclick="checkAll()">Quét toàn bộ</button>
     <button onclick="genDocs()">Sinh tài liệu</button>
-    
     <button class="primary" onclick="loadAll()">Làm mới</button>
+    <button onclick="openGuide()">❓ Hướng dẫn</button>
   </nav>
 </header>
 <div class="layout">
   <div class="sidebar">
     <h2>Dự án</h2>
     <div id="projects"></div>
-    <div class="add-form">
-      <input class="name" id="addName" placeholder="tên" />
-      <input id="addPath" placeholder="/đường/dẫn/source" /><input id="addUrd" placeholder="/đường/dẫn/urd (tùy chọn)" />
-      <button onclick="addProject()">+</button>
-    </div>
+    <button onclick="openAddModal()" style="width:100%;margin-top:6px;border-color:var(--acc);color:var(--acc)">➕ Thêm dự án</button>
     <h2 style="margin-top:14px">Chú giải</h2>
     <div style="font-size:11px;color:var(--mut);line-height:1.7">
       <span class="badge ok">PASS</span> khớp URD<br/>
@@ -117,8 +114,9 @@ async function loadAll(){
   const cur = projectsList.find(p=>p.name===currentProject);
   const gitHtml = cur && cur.gitUrl ? ` · <a href="${qs(cur.gitUrl)}" target="_blank" style="color:var(--acc);text-decoration:none">🔗 source</a>` : '';
   const urdHtml = cur && cur.urdGitUrl ? ` · <a href="${qs(cur.urdGitUrl)}" target="_blank" style="color:var(--acc);text-decoration:none">🔗 URD</a>` : '';
+  const runtimeHtml = cur && cur.runtimeUrl ? ` · <a href="${qs(cur.runtimeUrl)}" target="_blank" style="color:var(--ok);text-decoration:none">🚀 app</a>` : '';
   const branchHtml = cur && cur.branch ? ` · ${qs(cur.branch)}` : '';
-  document.getElementById('meta').innerHTML = `${qs(currentProject)}${branchHtml} · ${regData?regData.requirements.length:0} yêu cầu · ${regData?regData.commits.length:0} commit${gitHtml}${urdHtml}`;
+  document.getElementById('meta').innerHTML = `${qs(currentProject)}${branchHtml} · ${regData?regData.requirements.length:0} yêu cầu · ${regData?regData.commits.length:0} commit${gitHtml}${urdHtml}${runtimeHtml}`;
   renderProjectSettings(cur);
   renderContent();
 }
@@ -130,7 +128,7 @@ function renderProjects(){
     const gitLink = p.gitUrl ? `<a href="${qs(p.gitUrl)}" target="_blank" onclick="event.stopPropagation()" style="color:var(--acc);font-size:11px;text-decoration:none" title="${qs(p.gitUrl)}">🔗</a>` : '';
     const modeLabel = {pre:'chặn trước',post:'kiểm tra sau',both:'cả 2'}[p.checkMode||'post'];
     const modeColor = {pre:'var(--warn)',post:'var(--mut)',both:'var(--acc)'}[p.checkMode||'post'];
-    return `<div class="proj-item ${p.name===currentProject?'active':''}" onclick="selectProject('${p.name}')"><span>${qs(p.name)} <span style="color:var(--mut);font-size:10px">${p.requirements||0}yc</span> ${gitLink}<br/><span style="font-size:9px;color:${modeColor}">⚙ ${modeLabel}</span></span><span class="del" onclick="event.stopPropagation();delProject('${p.name}')">✕</span></div>`;
+    return `<div class="proj-item ${p.name===currentProject?'active':''}" onclick="selectProject('${p.name}')"><span>${qs(p.name)} <span style="color:var(--mut);font-size:10px">${p.requirements||0}yc</span> ${gitLink}<br/><span style="font-size:9px;color:${modeColor}">⚙ ${modeLabel}</span></span><span><span class="del" style="color:var(--acc);font-size:11px;margin-right:6px" onclick="event.stopPropagation();openEditModal('${p.name}')">✏️</span><span class="del" onclick="event.stopPropagation();delProject('${p.name}')">✕</span></span></div>`;
   }).join('');
 }
 function selectProject(name){ currentProject=name; currentDoc=null; loadAll(); }
@@ -147,6 +145,7 @@ function renderProjectSettings(p){
       <option value="both" ${mode==='both'?'selected':''}>Cả 2</option>
     </select>
     <button onclick="downloadHook('${p.name}')" style="font-size:11px">📥 Tải hook</button>
+    <span class="badge ${p.scanStatus==='full'?'ok':'warn'}">${p.scanStatus==='full'?'✓ đã quét full':'chưa quét full'}</span>
     <span style="color:var(--mut);font-size:11px">${mode==='pre'||mode==='both'?'Cài hook vào .git/hooks/commit-msg để chặn commit FAIL':mode==='post'?'Kiểm tra sau khi commit, không chặn':''}</span>`;
 }
 async function changeMode(name){
@@ -294,6 +293,19 @@ async function checkRecent(){
   await loadAll();
   if(tab!=='commits') switchTab('commits');
 }
+
+async function checkAll(){
+  const btn = document.querySelector('nav button[onclick="checkAll()"]');
+  if(btn){ btn.textContent='Đang quét...'; btn.disabled=true; }
+  document.getElementById('meta').innerHTML = 'Đang quét TOÀN BỘ commit trong background... Vào tab Commit để xem kết quả dần dần';
+  try {
+    const r = await api('/api/check/all','POST');
+    if(r.error){ alert(r.error); }
+    else { alert(r.message || 'Đang quét...'); }
+  } catch(e) { alert('Lỗi: '+e.message); }
+  if(btn){ btn.textContent='Quét toàn bộ'; btn.disabled=false; }
+  if(tab!=='commits') switchTab('commits');
+}
 async function genDocs(){ const r=await api('/api/generate-docs','POST'); if(r.error) alert(r.error); else { currentDoc=null; if(tab!=='docs') switchTab('docs'); else loadAll(); } }
 
 async function reviewUrd(){
@@ -378,7 +390,7 @@ async function renderImpact(el){
     let html = files.map(f=>{
       const reqs = (f.requirements||[]).map(r=>{
         const srcs = (r.sourceFiles||[]).map(s=>'<code style="font-size:10px">'+qs(s)+'</code>').join(' ');
-        const statusBadge = r.hasFail?'<span class="badge err">có FAIL</span>':(r.status==='done'?'<span class="badge ok">OK</span>':(r.commitCount?'<span class="badge warn">đang làm</span>':'<span class="badge acc">chưa code</span>'));
+        const statusBadge = r.hasFail?'<span class="badge err">có FAIL</span>':(r.status==='OK'?'<span class="badge ok">OK</span>':(r.commitCount?'<span class="badge warn">đang làm</span>':'<span class="badge acc">chưa code</span>'));
         return '<tr><td style="padding:6px;border:1px solid var(--border)"><b>'+qs(r.id)+'</b></td><td style="padding:6px;border:1px solid var(--border)">'+qs(r.title)+'</td><td style="padding:6px;border:1px solid var(--border)">'+statusBadge+'</td><td style="padding:6px;border:1px solid var(--border);font-size:11px">'+r.commitCount+'</td><td style="padding:6px;border:1px solid var(--border);font-size:11px">'+(srcs||'—')+'</td></tr>';
       }).join('');
       return '<div class="card"><h3>📄 '+qs(f.file)+' <span style="color:var(--mut);font-size:12px">— '+f.requirementCount+' yêu cầu</span></h3><table style="width:100%;border-collapse:collapse;font-size:12px"><tr style="background:var(--panel2)"><th style="text-align:left;padding:6px;border:1px solid var(--border)">ID</th><th style="text-align:left;padding:6px;border:1px solid var(--border)">Tiêu đề</th><th style="text-align:left;padding:6px;border:1px solid var(--border)">Trạng thái</th><th style="padding:6px;border:1px solid var(--border)">Commit</th><th style="text-align:left;padding:6px;border:1px solid var(--border)">Source ảnh hưởng</th></tr>'+reqs+'</table></div>';
@@ -391,6 +403,152 @@ async function renderImpact(el){
 }
 
 loadAll();
+</script>
+<div id="addModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:24px;width:480px;max-width:90vw;max-height:90vh;overflow-y:auto">
+    <h3 id="modalTitle" style="margin:0 0 16px">➕ Thêm dự án mới</h3>
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:var(--mut)">Tên dự án *</label>
+      <input id="addName" placeholder="vd: asset-manage" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--txt);padding:8px;margin-top:4px;font-family:inherit;font-size:13px" />
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:var(--mut)">Kiểu thêm</label>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <button id="modeLocal" onclick="setAddType('local')" style="flex:1;border-color:var(--acc);color:var(--acc)">Đường dẫn local</button>
+        <button id="modeClone" onclick="setAddType('clone')" style="flex:1">Clone từ Git</button>
+      </div>
+    </div>
+    <div id="localFields">
+      <div style="margin-bottom:12px">
+        <label style="font-size:12px;color:var(--mut)">Đường dẫn source *</label>
+        <input id="addPath" placeholder="/đường/dẫn/đến/source" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--txt);padding:8px;margin-top:4px;font-family:inherit;font-size:13px" />
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="font-size:12px;color:var(--mut)">Đường dẫn URD (tùy chọn)</label>
+        <input id="addUrd" placeholder="/đường/dẫn/đến/urd (nếu riêng)" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--txt);padding:8px;margin-top:4px;font-family:inherit;font-size:13px" />
+      </div>
+      <div id="editGitFields" style="display:none;margin-bottom:12px">
+        <label style="font-size:12px;color:var(--mut)">Git URL source</label>
+        <input id="addGitUrlLocal" placeholder="https://github.com/user/repo" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--txt);padding:8px;margin-top:4px;font-family:inherit;font-size:13px" />
+        <label style="font-size:12px;color:var(--mut);margin-top:8px;display:block">Git URL URD</label>
+        <input id="addUrdUrlLocal" placeholder="https://github.com/user/repo-urd" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--txt);padding:8px;margin-top:4px;font-family:inherit;font-size:13px" />
+      </div>
+    </div>
+    <div id="cloneFields" style="display:none">
+      <div style="margin-bottom:12px">
+        <label style="font-size:12px;color:var(--mut)">Git URL source *</label>
+        <input id="addGitUrl" placeholder="https://github.com/user/repo.git" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--txt);padding:8px;margin-top:4px;font-family:inherit;font-size:13px" />
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="font-size:12px;color:var(--mut)">Git URL URD (tùy chọn)</label>
+        <input id="addUrdUrl" placeholder="https://github.com/user/repo-urd.git" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--txt);padding:8px;margin-top:4px;font-family:inherit;font-size:13px" />
+      </div>
+    </div>
+    <div style="margin-bottom:16px">
+      <label style="font-size:12px;color:var(--mut)">Chế độ kiểm tra</label>
+      <select id="addCheckMode" style="width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--txt);padding:8px;margin-top:4px;font-family:inherit;font-size:13px">
+        <option value="post">Kiểm tra sau (post-commit)</option>
+        <option value="pre">Chặn trước (pre-commit)</option>
+        <option value="both">Cả 2</option>
+      </select>
+    </div>
+    <div id="addStatus" style="font-size:12px;margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button onclick="closeAddModal()">Hủy</button>
+      <button class="primary" id="addSubmit" onclick="submitAddProject()">Thêm dự án</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let addType = 'local'; let editMode = false; let editingProject = null;
+function openAddModal(){ editMode=false; editingProject=null; document.getElementById('addModal').style.display='flex'; document.getElementById('modalTitle').textContent='➕ Thêm dự án mới'; document.getElementById('addSubmit').textContent='Thêm dự án'; document.getElementById('addName').value=''; document.getElementById('addName').disabled=false; document.getElementById('addPath').value=''; document.getElementById('addUrd').value=''; document.getElementById('addGitUrl').value=''; document.getElementById('addUrdUrl').value=''; document.getElementById('addCheckMode').value='post'; document.getElementById('addStatus').innerHTML=''; document.getElementById('editGitFields').style.display='none'; document.getElementById('modeClone').style.display=''; setAddType('local'); }
+function openEditModal(name){
+  const p = projectsList.find(x=>x.name===name); if(!p) return;
+  editMode=true; editingProject=name; document.getElementById('addModal').style.display='flex';
+  document.getElementById('modalTitle').textContent='✏️ Sửa dự án: '+name;
+  document.getElementById('addSubmit').textContent='Lưu thay đổi';
+  document.getElementById('addName').value=p.name; document.getElementById('addName').disabled=true;
+  document.getElementById('addPath').value=p.path||'';
+  document.getElementById('addUrd').value=p.urdPath||'';
+  document.getElementById('addGitUrlLocal').value=p.gitUrl||'';
+  document.getElementById('addUrdUrlLocal').value=p.urdGitUrl||'';
+  document.getElementById('addCheckMode').value=p.checkMode||'post';
+  document.getElementById('addStatus').innerHTML='';
+  document.getElementById('editGitFields').style.display='block';
+  document.getElementById('modeClone').style.display='none';
+  setAddType('local');
+}
+function closeAddModal(){ document.getElementById('addModal').style.display='none'; document.getElementById('addStatus').innerHTML=''; document.getElementById('modeClone').style.display=''; }
+function setAddType(t){ addType=t; document.getElementById('localFields').style.display=t==='local'?'block':'none'; document.getElementById('cloneFields').style.display=t==='clone'?'block':'none'; document.getElementById('modeLocal').style.borderColor=t==='local'?'var(--acc)':'var(--border)'; document.getElementById('modeLocal').style.color=t==='local'?'var(--acc)':'var(--txt)'; document.getElementById('modeClone').style.borderColor=t==='clone'?'var(--acc)':'var(--border)'; document.getElementById('modeClone').style.color=t==='clone'?'var(--acc)':'var(--txt)'; }
+
+async function submitAddProject(){
+  const name = document.getElementById('addName').value.trim();
+  const checkMode = document.getElementById('addCheckMode').value;
+  const statusEl = document.getElementById('addStatus');
+  const btn = document.getElementById('addSubmit');
+  if(!name){ statusEl.innerHTML='<span style="color:var(--err)">Vui lòng nhập tên dự án</span>'; return; }
+  btn.disabled = true; btn.textContent = editMode ? 'Đang lưu...' : 'Đang thêm...';
+  try {
+    if(editMode){
+      const updates = { checkMode };
+      const p = document.getElementById('addPath').value.trim();
+      const u = document.getElementById('addUrd').value.trim();
+      const g = document.getElementById('addGitUrlLocal').value.trim();
+      const ug = document.getElementById('addUrdUrlLocal').value.trim();
+      if(p) updates.path = p;
+      if(u) updates.urdPath = u;
+      if(g) updates.gitUrl = g;
+      if(ug) updates.urdGitUrl = ug;
+      const r = await fetch('/api/projects/'+encodeURIComponent(editingProject)+'/mode',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(updates)});
+      const j = await r.json();
+      if(j.error){ statusEl.innerHTML='<span style="color:var(--err)">'+qs(j.error)+'</span>'; btn.disabled=false; btn.textContent='Lưu thay đổi'; return; }
+      closeAddModal(); loadAll();
+    } else {
+      let r;
+      if(addType === 'clone'){
+        const gitUrl = document.getElementById('addGitUrl').value.trim();
+        const urdUrl = document.getElementById('addUrdUrl').value.trim();
+        if(!gitUrl){ statusEl.innerHTML='<span style="color:var(--err)">Vui lòng nhập Git URL</span>'; btn.disabled=false; btn.textContent='Thêm dự án'; return; }
+        statusEl.innerHTML = '<span style="color:var(--acc)">Đang clone repository...</span>';
+        r = await api('/api/projects/clone','POST',{name,gitUrl,urdGitUrl:urdUrl||undefined,checkMode});
+      } else {
+        const p = document.getElementById('addPath').value.trim();
+        const u = document.getElementById('addUrd').value.trim();
+        if(!p){ statusEl.innerHTML='<span style="color:var(--err)">Vui lòng nhập đường dẫn source</span>'; btn.disabled=false; btn.textContent='Thêm dự án'; return; }
+        r = await api('/api/projects','POST',{name,path:p,urdPath:u||undefined});
+        if(!r.error && checkMode !== 'post'){ await fetch('/api/projects/'+encodeURIComponent(name)+'/mode',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({checkMode})}); }
+      }
+      if(r.error){ statusEl.innerHTML='<span style="color:var(--err)">'+qs(r.error)+'</span>'; btn.disabled=false; btn.textContent='Thêm dự án'; return; }
+      closeAddModal(); currentProject=name; loadAll();
+    }
+  } catch(e){ statusEl.innerHTML='<span style="color:var(--err)">Lỗi: '+qs(e.message)+'</span>'; }
+  btn.disabled=false; btn.textContent = editMode ? 'Lưu thay đổi' : 'Thêm dự án';
+}
+</script>
+<div id="guideModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:24px;width:800px;max-width:90vw;max-height:85vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="margin:0">❓ Hướng dẫn sử dụng</h3>
+      <button onclick="closeGuide()">✕ Đóng</button>
+    </div>
+    <div id="guideContent" class="doc-view" style="max-height:70vh;overflow-y:auto"></div>
+  </div>
+</div>
+
+<script>
+async function openGuide(){
+  const modal = document.getElementById('guideModal');
+  const content = document.getElementById('guideContent');
+  modal.style.display = 'flex';
+  content.innerHTML = '<div class="empty">Đang tải...</div>';
+  try {
+    const r = await fetch('/api/guide');
+    const md = await r.text();
+    content.innerHTML = renderMarkdown(md);
+  } catch(e) { content.innerHTML = '<div class="empty">Lỗi tải hướng dẫn</div>'; }
+}
+function closeGuide(){ document.getElementById('guideModal').style.display = 'none'; }
 </script>
 </body>
 </html>

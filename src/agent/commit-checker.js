@@ -24,8 +24,16 @@ async function checkCommit(sha, opts = {}) {
 
   const info = git.commitInfo(sha, root);
   const changedFiles = info.changedFiles.map((c) => c.file);
-  const diff = (info.fullDiff || git.diffFor(sha, root) || '').slice(0, 8000);
+  const diff = (info.fullDiff || git.diffFor(sha, root) || '').slice(0, 3000);
   const claimed = parseClaimedRequirements(info.subject, info.body);
+
+  const fileContents = [];
+  for (const f of changedFiles.slice(0, 6)) {
+    try {
+      const content = git.fileAtCommit(sha, f, root);
+      if (content) fileContents.push({ file: f, content: content.slice(0, 4000) });
+    } catch (_e) {}
+  }
 
   const notes = [];
   const reqResults = [];
@@ -45,7 +53,7 @@ async function checkCommit(sha, opts = {}) {
       reqResults.push({ id: reqId, title: '(unknown)', verdict: 'FAIL', summary: `Requirement ${reqId} not found in URD`, criteria: [] });
       continue;
     }
-    const verdict = await llm.checkRequirement(req, diff);
+    const verdict = await llm.checkRequirement(req, diff, fileContents);
     reqResults.push({
       id: req.id,
       title: req.title,

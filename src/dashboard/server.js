@@ -4,6 +4,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
+const { execSync } = require('child_process');
 const { ROOT, DEFAULT_DIRS, readText, rel, ensureDir } = require('../store/fs-utils');
 const db = require('../store/db');
 const projects = require('../store/projects');
@@ -70,7 +71,12 @@ function findTestFiles(sourceDir, projectRoot) {
       if (['node_modules', '.git', 'target', 'dist', '.angular', 'build'].includes(entry.name)) continue;
       const full = path.join(d, entry.name);
       if (entry.isDirectory()) walk(full);
-      else if (testPatterns.some((p) => p.test(entry.name))) out.push(path.relative(projectRoot, full).replace(/\\/g, '/'));
+      else if (testPatterns.some((p) => p.test(entry.name))) {
+        const rel = path.relative(projectRoot, full).replace(/\\/g, '/');
+        let content = '';
+        try { content = fs.readFileSync(full, 'utf8'); } catch (_e) {}
+        out.push({ path: rel, content });
+      }
     }
   };
   walk(sourceDir);
@@ -101,7 +107,7 @@ async function handleApi(req, res, pathname, query, ctx) {
         if (gitUrl && gitUrl.startsWith('/')) gitUrl = p.gitUrl || null;
         let urdGitUrl = p.urdGitUrl || (p.urdPath ? git.remoteUrl(p.urdPath) : null);
         if (urdGitUrl && urdGitUrl.startsWith('/')) urdGitUrl = p.urdGitUrl || null;
-        return { name: p.name, path: p.path, requirements: reg.requirements.length, commits: reg.commits.length, gitUrl, urdGitUrl, branch: git.branches(c.root)[0] || '', checkMode: p.checkMode || 'post' };
+        return { name: p.name, path: p.path, requirements: reg.requirements.length, commits: reg.commits.length, gitUrl, urdGitUrl, branch: git.branches(c.root)[0] || '', checkMode: p.checkMode || 'post', runtimeUrl: p.runtimeUrl || null, scanStatus: p.scanStatus || 'partial' };
       });
       return json(res, 200, { current: ctx && ctx.projectName, projects: stats });
     }
@@ -138,6 +144,29 @@ async function handleApi(req, res, pathname, query, ctx) {
       db.save(reg, ctx.registryFile);
       return json(res, 200, results);
     }
+    case '/api/check/all': {
+      const force = query.force === 'true';
+      (async () => {
+        const allCommits = git.listCommits(1000, ctx.root);
+        const urds = loadAllUrd(ctx.urdDir);
+        const reqs = flattenRequirements(urds);
+        let checked = 0;
+        let skipped = 0;
+        for (const c of allCommits) {
+          const reg = db.load(ctx.registryFile);
+          db.syncRequirements(reg, reqs);
+          const already = reg.commits.find((x) => x.sha === c.sha);
+          if (already && !force) { skipped++; continue; }
+          const result = await checkCommit(c.sha, { root: ctx.root, urdDir: ctx.urdDir });
+          db.upsertCommit(reg, result);
+          db.save(reg, ctx.registryFile);
+          checked++;
+        }
+        try { projects.updateProject(ctx.projectName, { scanStatus: 'full' }); } catch (_e) {}
+        console.log(`[urd-guardian] ${ctx.projectName}: ${force?'force ':''}scan done — ${checked} checked, ${skipped} skipped, ${allCommits.length} total`);
+      })();
+      return json(res, 200, { status: 'started', message: force ? 'Đang quét lại toàn bộ (force)' : 'Đang quét toàn bộ commit trong background' });
+    }
     case '/api/generate-docs': {
       const result = generateAll({ sourceDir: ctx.sourceDir, usageDir: ctx.usageDir, urdDir: ctx.urdDir, projectRoot: ctx.root });
       return json(res, 200, result);
@@ -158,9 +187,11 @@ async function handleApi(req, res, pathname, query, ctx) {
         const reqCommits = (r.commits || []).map((sc) => commitById.get(sc.sha)).filter(Boolean);
         const sourceFiles = [...new Set(reqCommits.flatMap((c) => c.changedFiles || []))];
         const tests = testFiles.filter((f) => {
-          const lower = f.toLowerCase();
-          return lower.includes(r.id.toLowerCase().replace('-', '')) || lower.includes(r.id.toLowerCase());
-        });
+          const lower = (f.path || '').toLowerCase();
+          const content = (f.content || '').toLowerCase();
+          const idLower = r.id.toLowerCase();
+          return lower.includes(idLower) || content.includes(idLower) || content.includes(idLower.replace('-', ''));
+        }).map((f) => f.path);
         return {
           id: r.id, title: r.title, urdId: r.urdId, urdFile: r.urdFile,
           status: r.status,
@@ -175,11 +206,22 @@ async function handleApi(req, res, pathname, query, ctx) {
     }
     case '/api/coverage': {
       const reg = syncRegistry(ctx);
-      const view = db.dashboardView(reg);
-      const reqs = view.requirements;
+      const reqs = reg.requirements;
       const total = reqs.length;
-      const pass = reqs.filter((r) => (r.commits || []).some((c) => c.ok)).length;
-      const fail = reqs.filter((r) => (r.commits || []).length && !(r.commits || []).some((c) => c.ok)).length;
+      const commitById = new Map();
+      for (const c of reg.commits) commitById.set(c.sha, c);
+      const reqHasPass = (r) => {
+        for (const sha of (r.commits || [])) {
+          const commit = commitById.get(sha);
+          if (commit && commit.requirements) {
+            const res = commit.requirements.find((x) => x.id === r.id);
+            if (res && res.verdict === 'PASS') return true;
+          }
+        }
+        return false;
+      };
+      const pass = reqs.filter((r) => (r.commits || []).length && reqHasPass(r)).length;
+      const fail = reqs.filter((r) => (r.commits || []).length && !reqHasPass(r)).length;
       const notStarted = reqs.filter((r) => !(r.commits || []).length).length;
       const byUrd = {};
       for (const r of reqs) {
@@ -187,9 +229,10 @@ async function handleApi(req, res, pathname, query, ctx) {
         if (!byUrd[k]) byUrd[k] = { total: 0, pass: 0, fail: 0, notStarted: 0 };
         byUrd[k].total++;
         if (!(r.commits || []).length) byUrd[k].notStarted++;
-        else if ((r.commits || []).some((c) => c.ok)) byUrd[k].pass++;
+        else if (reqHasPass(r)) byUrd[k].pass++;
         else byUrd[k].fail++;
       }
+      const view = db.dashboardView(reg);
       const commits = [...view.commits].reverse();
       const seenPass = new Set();
       const trend = commits.map((c) => {
@@ -207,17 +250,31 @@ async function handleApi(req, res, pathname, query, ctx) {
       let urdCommits = [];
       try { urdCommits = git.listCommits(10, ctx.urdDir); } catch (_e) {}
       const impact = urdFiles.map((f) => {
-        const urdReqs = view.requirements.filter((r) => r.urdFile && r.urdFile.endsWith(f.name));
+        const urdReqs = reg.requirements.filter((r) => r.urdFile && r.urdFile.endsWith(f.name));
         return {
           file: f.name,
           requirementCount: urdReqs.length,
           requirements: urdReqs.map((r) => {
             const reqCommits = (r.commits || []).map((sc) => commitById.get(sc.sha)).filter(Boolean);
+            const sourceFiles = [...new Set(reqCommits.flatMap((c) => c.changedFiles || []))];
+            let hasPass = false;
+            let hasFail = false;
+            for (const sha of (r.commits || [])) {
+              const commit = commitById.get(sha);
+              if (commit && commit.requirements) {
+                const res = commit.requirements.find((x) => x.id === r.id);
+                if (res) {
+                  if (res.verdict === 'PASS') hasPass = true;
+                  if (res.verdict === 'FAIL') hasFail = true;
+                }
+              }
+            }
+            const status = !r.commits || !r.commits.length ? 'chưa code' : hasPass ? 'OK' : hasFail ? 'có FAIL' : 'đang làm';
             return {
-              id: r.id, title: r.title, status: r.status,
-              sourceFiles: [...new Set(reqCommits.flatMap((c) => c.changedFiles || []))],
+              id: r.id, title: r.title, status,
+              sourceFiles,
               commitCount: (r.commits || []).length,
-              hasFail: (r.mismatchNotes || []).some((n) => n.level === 'error'),
+              hasFail: hasFail && !hasPass,
             };
           }),
         };
@@ -319,6 +376,32 @@ async function handleCheckStaged(req, res, ctx) {
   }
 }
 
+async function handleCloneProject(req, res) {
+  try {
+    const body = JSON.parse(await readBody(req));
+    const { name, gitUrl, urdGitUrl, checkMode } = body;
+    if (!name || !gitUrl) return json(res, 400, { error: 'Thiếu tên dự án hoặc git URL' });
+    const projectsDir = process.env.PROJECTS_DIR || path.join(__dirname, '..', 'projects');
+    ensureDir(projectsDir);
+    const targetPath = path.join(projectsDir, name);
+    if (fs.existsSync(targetPath)) return json(res, 400, { error: `Thư mục đã tồn tại: ${targetPath}` });
+    execSync(`git clone --depth 1 "${gitUrl}" "${targetPath}"`, { stdio: 'ignore', timeout: 60000 });
+    let urdPath = null;
+    if (urdGitUrl) {
+      urdPath = path.join(projectsDir, name + '-urd');
+      try { execSync(`git clone --depth 1 "${urdGitUrl}" "${urdPath}"`, { stdio: 'ignore', timeout: 60000 }); }
+      catch (_e) { urdPath = null; }
+    }
+    const rec = projects.addProject(name, targetPath, urdPath || undefined);
+    if (checkMode) { try { projects.updateProject(name, { checkMode }); } catch (_e) {} }
+    if (urdGitUrl) { try { projects.updateProject(name, { gitUrl: gitUrl, urdGitUrl: urdGitUrl }); } catch (_e) {} }
+    else { try { projects.updateProject(name, { gitUrl: gitUrl }); } catch (_e) {} }
+    return json(res, 200, rec);
+  } catch (e) {
+    return json(res, 400, { error: 'Clone thất bại: ' + e.message });
+  }
+}
+
 function generateHookScript(projectName, baseUrl) {
   return `#!/bin/sh
 # Jarvis pre-commit/commit-msg hook — project: ${projectName}
@@ -357,6 +440,13 @@ function createServer(opts = {}) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ status: 'healthy', ts: Date.now() }));
     }
+    if (pathname === '/api/guide') {
+      const guidePath = path.join(ROOT, 'docs', 'huong-dan-su-dung.md');
+      const text = readText(guidePath);
+      if (!text) return json(res, 404, { error: 'guide not found' });
+      res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8' });
+      return res.end(text);
+    }
     if (pathname === '/api/projects' && req.method === 'GET') {
       const ctx = makeCtx(query.project);
       return handleApi(req, res, '/api/projects', query, ctx);
@@ -372,6 +462,9 @@ function createServer(opts = {}) {
         } catch (e) { return json(res, 400, { error: e.message }); }
       });
       return;
+    }
+    if (pathname === '/api/projects/clone' && req.method === 'POST') {
+      return handleCloneProject(req, res);
     }
     if (pathname.startsWith('/api/projects/') && req.method === 'DELETE') {
       const name = decodeURIComponent(pathname.replace('/api/projects/', ''));
@@ -404,6 +497,7 @@ function createServer(opts = {}) {
     if (!ctx) return json(res, 400, { error: 'no projects configured. POST /api/projects {name,path} or set PROJECTS_DIR.' });
     if (req.method === 'POST' && pathname === '/api/generate-docs') return handleApi(req, res, '/api/generate-docs', query, ctx);
     if (req.method === 'POST' && pathname === '/api/check/recent') return handleApi(req, res, '/api/check/recent', query, ctx);
+    if (req.method === 'POST' && pathname === '/api/check/all') return handleApi(req, res, '/api/check/all', query, ctx);
     if (req.method === 'POST' && pathname === '/api/check/staged') return handleCheckStaged(req, res, ctx);
     if (req.method === 'POST' && pathname === '/api/urd') return handleUploadUrd(req, res, ctx);
     if (req.method === 'POST' && pathname === '/api/urd/review') return handleReviewUrd(req, res, ctx);

@@ -21,10 +21,22 @@ async function bootstrapProject(name) {
     if (!reqs.length) { console.log(`[urd-guardian] ${name}: no URD found`); return; }
     const reg = db.load(ctx.registryFile);
     db.syncRequirements(reg, reqs);
-    const results = await checkRecent(8, { root: ctx.root, urdDir: ctx.urdDir });
-    for (const r of results) db.upsertCommit(reg, r);
     db.save(reg, ctx.registryFile);
-    console.log(`[urd-guardian] ${name}: ${reqs.length} requirements, ${results.length} commits checked (LLM)`);
+    console.log(`[urd-guardian] ${name}: ${reqs.length} requirements synced, scanning 10 recent commits in background...`);
+    const gitReader = require('./agent/git-reader');
+    const { checkCommit } = require('./agent/commit-checker');
+    const recentCommits = gitReader.listCommits(10, ctx.root);
+    let checked = 0;
+    for (const c of recentCommits) {
+      try {
+        const result = await checkCommit(c.sha, { root: ctx.root, urdDir: ctx.urdDir });
+        const regUpd = db.load(ctx.registryFile);
+        db.upsertCommit(regUpd, result);
+        db.save(regUpd, ctx.registryFile);
+        checked++;
+      } catch (_e) {}
+    }
+    console.log(`[urd-guardian] ${name}: ${checked}/${recentCommits.length} commits checked`);
   } catch (e) {
     console.error(`[urd-guardian] bootstrap error for ${name}: ${e.message}`);
   }

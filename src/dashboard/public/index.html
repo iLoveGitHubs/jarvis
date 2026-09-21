@@ -88,6 +88,7 @@
       <button id="tab-trace" onclick="switchTab('trace')">Bản đồ</button>
       <button id="tab-cov" onclick="switchTab('cov')">Sức khỏe</button>
       <button id="tab-impact" onclick="switchTab('impact')">Tác động</button>
+      <button id="tab-ocr" onclick="switchTab('ocr')">Code Review</button>
     </div>
     <div id="content"></div>
   </div>
@@ -162,7 +163,7 @@ function downloadHook(name){
 async function addProject(){ const n=document.getElementById('addName').value.trim(), p=document.getElementById('addPath').value.trim(), u=document.getElementById('addUrd').value.trim(); if(!n||!p) return; const r=await api('/api/projects','POST',{name:n,path:p,urdPath:u||undefined}); if(r.error) alert(r.error); document.getElementById('addName').value=''; document.getElementById('addPath').value=''; loadAll(); }
 async function delProject(name){ if(!confirm(`Xóa dự án "${name}"?`)) return; await fetch(`/api/projects/${encodeURIComponent(name)}`,{method:'DELETE'}); if(currentProject===name) currentProject=null; loadAll(); }
 
-function switchTab(t){ tab=t; ['reqs','commits','docs','trace','cov','impact'].forEach(x=>{const b=document.getElementById('tab-'+x); if(b) b.classList.toggle('active',x===t)}); renderContent(); }
+function switchTab(t){ tab=t; ['reqs','commits','docs','trace','cov','impact','ocr'].forEach(x=>{const b=document.getElementById('tab-'+x); if(b) b.classList.toggle('active',x===t)}); renderContent(); }
 
 function renderContent(){
   const el=document.getElementById('content');
@@ -172,6 +173,7 @@ function renderContent(){
   else if(tab==='trace') renderTrace(el);
   else if(tab==='cov') renderCoverage(el);
   else if(tab==='impact') renderImpact(el);
+  else if(tab==='ocr') renderOcr(el);
 }
 
 async function renderReqs(el){
@@ -445,6 +447,38 @@ async function renderImpact(el){
     }
     el.innerHTML = html;
   } catch(e){ el.innerHTML='<div class="empty">Lỗi: '+qs(e.message)+'</div>'; }
+}
+
+async function renderOcr(el){
+  el.innerHTML = '<div class="card"><h3>🔍 Code Review (Open Code Review)</h3><p class="meta">Tích hợp <a href="https://github.com/alibaba/open-code-review" target="_blank" style="color:var(--acc)">alibaba/open-code-review</a> — AI code review CLI từ Alibaba.</p><div style="display:flex;gap:8px;margin:12px 0"><button onclick="runOcr(\'review\')" id="ocrReviewBtn">Review commit gần nhất</button><button onclick="runOcr(\'scan\')" id="ocrScanBtn">Scan toàn bộ source</button></div><div id="ocr-results" style="margin-top:12px"></div></div>';
+}
+
+async function runOcr(mode){
+  const resultsEl = document.getElementById('ocr-results');
+  const btn = document.getElementById(mode==='scan'?'ocrScanBtn':'ocrReviewBtn');
+  if(btn){ btn.textContent='Đang review...'; btn.disabled=true; }
+  resultsEl.innerHTML = '<div class="empty">Đang chạy OCR — có thể mất 1-3 phút...</div>';
+  try {
+    const r = await api('/api/ocr-review','POST',{mode});
+    if(r.status === 'failed'){ resultsEl.innerHTML = '<div class="note warn">OCR thất bại. Có thể git repo bị lỗi hoặc không có diff. Thử scan mode.</div>'; }
+    else if(!r.results || !r.results.length){ resultsEl.innerHTML = '<div class="empty">Không tìm thấy vấn đề. Code sạch! ✅</div>'; }
+    else {
+      let html = '<div class="meta">Tìm thấy '+r.count+' vấn đề (files reviewed: '+(r.summary.files_reviewed||0)+', tokens: '+(r.summary.total_tokens||0)+', time: '+(r.summary.elapsed||'?')+')</div>';
+      for(const item of r.results){
+        const sev = (item.severity||item.level||'info').toLowerCase();
+        const sevColor = sev==='critical'||sev==='error'||sev==='high'?'err':sev==='warning'||sev==='warn'||sev==='medium'?'warn':'acc';
+        const sevBadge = '<span class="badge '+sevColor+'">'+qs(sev)+'</span>';
+        const file = item.path||item.file||'—';
+        const line = item.start_line||item.line||'';
+        const msg = item.content||item.message||item.comment||'';
+        const cat = item.category||item.rule||'';
+        const suggestion = item.suggestion_code||'';
+        html += '<div class="card"><div style="display:flex;justify-content:space-between;align-items:start"><div><b>'+qs(file)+'</b>'+(line?' <span class="meta">dòng '+qs(line)+'</span>':'')+'</div>'+sevBadge+(cat?' <span class="badge acc">'+qs(cat)+'</span>':'')+'</div><div style="margin:6px 0;font-size:13px">'+qs(msg)+'</div>'+(suggestion?'<details style="margin-top:6px"><summary style="cursor:pointer;color:var(--acc);font-size:12px">Gợi ý sửa</summary><pre style="background:var(--panel2);padding:8px;border-radius:6px;margin-top:4px;font-size:11px;overflow-x:auto">'+qs(suggestion)+'</pre></details>':'')+'</div>';
+      }
+      resultsEl.innerHTML = html;
+    }
+  } catch(e){ resultsEl.innerHTML = '<div class="note error">Lỗi: '+qs(e.message)+'</div>'; }
+  if(btn){ btn.textContent = mode==='scan'?'Scan toàn bộ source':'Review commit gần nhất'; btn.disabled=false; }
 }
 
 loadAll();

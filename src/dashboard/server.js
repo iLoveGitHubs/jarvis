@@ -429,6 +429,46 @@ async function handleStandardizeUrd(req, res, ctx) {
   }
 }
 
+async function handleOcrReview(req, res, ctx) {
+  try {
+    const body = JSON.parse(await readBody(req));
+    const mode = body.mode || 'review';
+    const { execSync } = require('child_process');
+    const tmpFile = path.join(DEFAULT_DIRS.data, 'ocr-result-' + Date.now() + '.json');
+    ensureDir(DEFAULT_DIRS.data);
+    let cmd;
+    if (mode === 'scan') {
+      cmd = `ocr scan --path "${ctx.sourceDir}" --format json --output "${tmpFile}" 2>&1`;
+    } else {
+      const from = body.from || 'HEAD~1';
+      const to = body.to || 'HEAD';
+      cmd = `ocr review --from ${from} --to ${to} --format json --output "${tmpFile}" 2>&1`;
+    }
+    let stdout = '';
+    try {
+      stdout = execSync(cmd, { cwd: ctx.root, timeout: 300000, encoding: 'utf8' });
+    } catch (e) {
+      stdout = (e.stdout || e.message || '').toString();
+    }
+    let ocrResult = {};
+    try { ocrResult = readJson(tmpFile, {}); } catch (_e) {}
+    try { fs.unlinkSync(tmpFile); } catch (_e) {}
+    const comments = ocrResult.comments || [];
+    const status = ocrResult.status || 'unknown';
+    const summary = ocrResult.summary || {};
+    return json(res, 200, {
+      mode, status,
+      count: Array.isArray(comments) ? comments.length : 0,
+      results: Array.isArray(comments) ? comments : [],
+      summary,
+      sessionId: ocrResult.session_id || null,
+      raw: stdout.slice(0, 500),
+    });
+  } catch (e) {
+    return json(res, 400, { error: e.message, results: [] });
+  }
+}
+
 function generateHookScript(projectName, baseUrl) {
   return `#!/bin/sh
 # Jarvis pre-commit/commit-msg hook — project: ${projectName}
@@ -529,6 +569,7 @@ function createServer(opts = {}) {
     if (req.method === 'POST' && pathname === '/api/urd') return handleUploadUrd(req, res, ctx);
     if (req.method === 'POST' && pathname === '/api/urd/review') return handleReviewUrd(req, res, ctx);
     if (req.method === 'POST' && pathname === '/api/urd/standardize') return handleStandardizeUrd(req, res, ctx);
+    if (req.method === 'POST' && pathname === '/api/ocr-review') return handleOcrReview(req, res, ctx);
     if (pathname.startsWith('/api/')) return handleApi(req, res, pathname, query, ctx);
     return handleStatic(req, res, pathname);
   });

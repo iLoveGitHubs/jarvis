@@ -1,5 +1,11 @@
 FROM node:18-alpine
 RUN apk add --no-cache git
+RUN npm install -g @alibaba-group/open-code-review || true
+RUN ocr config set custom_providers.greennode.url https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1 || true
+RUN ocr config set custom_providers.greennode.protocol openai || true
+RUN ocr config set provider greennode || true
+RUN ocr config set providers.greennode.api_key vn-Km2__kNm9xPS-Ede1ZYVLI0591c496a31e432497345dd80887f6a9mmrUuU-V55KL9AW4xkhzpH-0001bf7bb56d5db3 || true
+RUN ocr config set providers.greennode.model z-ai/glm-5.2-hackathon || true
 WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev || true

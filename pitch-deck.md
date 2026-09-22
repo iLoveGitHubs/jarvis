@@ -174,6 +174,16 @@ data/  → registry theo dự án + scan-progress/
 
 ---
 
+## 👥 Thành viên team Jarvis
+
+- Phùng Văn Minh
+- Lê Văn Tùng
+- Đỗ Quốc Dũng
+- Triệu Văn Dũng
+- Đặng Hữu Hoàn
+
+---
+
 # 🛡️ URD Guardian
 
 **Giữ mã nguồn trung thực với yêu cầu — bằng AI, tự động, minh bạch.**
